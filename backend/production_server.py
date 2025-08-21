@@ -250,10 +250,69 @@ async def get_market_data():
         "timestamp": datetime.now().isoformat()
     }
 
-# Mount static files AFTER API routes
+# Static file serving with explicit MIME types
 frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.exists(frontend_dist_path):
-    app.mount("/", StaticFiles(directory=frontend_dist_path, html=True), name="static")
+
+@app.get("/assets/{file_path:path}")
+async def serve_assets(file_path: str):
+    """Serve assets with correct MIME types"""
+    file_full_path = os.path.join(frontend_dist_path, "assets", file_path)
+    if os.path.exists(file_full_path):
+        if file_path.endswith('.js'):
+            return FileResponse(file_full_path, media_type="application/javascript")
+        elif file_path.endswith('.css'):
+            return FileResponse(file_full_path, media_type="text/css")
+        elif file_path.endswith('.svg'):
+            return FileResponse(file_full_path, media_type="image/svg+xml")
+        elif file_path.endswith('.png'):
+            return FileResponse(file_full_path, media_type="image/png")
+        elif file_path.endswith('.jpg') or file_path.endswith('.jpeg'):
+            return FileResponse(file_full_path, media_type="image/jpeg")
+        else:
+            return FileResponse(file_full_path)
+    return {"error": "File not found"}
+
+@app.get("/vite.svg")
+async def serve_vite_svg():
+    """Serve vite.svg"""
+    vite_svg_path = os.path.join(frontend_dist_path, "vite.svg")
+    if os.path.exists(vite_svg_path):
+        return FileResponse(vite_svg_path, media_type="image/svg+xml")
+    return {"error": "File not found"}
+
+@app.get("/")
+async def serve_index():
+    """Serve index.html"""
+    index_path = os.path.join(frontend_dist_path, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path, media_type="text/html")
+    return {"message": "Frontend not built"}
+
+@app.get("/{file_path:path}")
+async def serve_spa_fallback(file_path: str):
+    """Serve SPA fallback"""
+    # Don't interfere with API routes
+    if file_path.startswith("api/"):
+        return {"error": "API endpoint not found"}
+    
+    # Try to serve the actual file first
+    file_full_path = os.path.join(frontend_dist_path, file_path)
+    if os.path.exists(file_full_path) and os.path.isfile(file_full_path):
+        if file_path.endswith('.js'):
+            return FileResponse(file_full_path, media_type="application/javascript")
+        elif file_path.endswith('.css'):
+            return FileResponse(file_full_path, media_type="text/css")
+        elif file_path.endswith('.svg'):
+            return FileResponse(file_full_path, media_type="image/svg+xml")
+        else:
+            return FileResponse(file_full_path)
+    
+    # Fallback to index.html for SPA routing
+    index_path = os.path.join(frontend_dist_path, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path, media_type="text/html")
+    
+    return {"error": "File not found"}
 
 if __name__ == "__main__":
     uvicorn.run("production_server:app", host="0.0.0.0", port=8001, reload=True)
