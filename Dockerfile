@@ -22,16 +22,13 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# Switch back to app directory
+# Copy backend files
 WORKDIR /app
-
-# Copy backend requirements and install Python dependencies
-COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy backend code
 COPY backend/ ./backend/
 COPY Dhan_Tradehull_V2.py ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # Expose port
 EXPOSE 8001
@@ -40,5 +37,5 @@ EXPOSE 8001
 ENV PYTHONPATH=/app
 ENV NODE_ENV=production
 
-# Start the FastAPI server
-CMD ["python", "backend/production_server.py"]
+# Start the Railway-optimized server
+CMD ["python", "backend/railway_server.py"]
