@@ -5,9 +5,12 @@ Simple FastAPI server for testing and basic functionality
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import uvicorn
 from datetime import datetime
 import random
+import os
 
 app = FastAPI(title="Nifty Trade Setup API", version="1.0.0")
 
@@ -20,8 +23,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files for frontend
+frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+if os.path.exists(frontend_dist_path):
+    app.mount("/static", StaticFiles(directory=frontend_dist_path), name="static")
+
 @app.get("/")
 async def root():
+    # Serve the frontend index.html if it exists, otherwise return API info
+    frontend_index = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist", "index.html")
+    if os.path.exists(frontend_index):
+        return FileResponse(frontend_index)
     return {"message": "Nifty Trade Setup API", "status": "running", "timestamp": datetime.now().isoformat()}
 
 @app.get("/health")
@@ -424,5 +436,19 @@ async def get_calibration_results():
         "timestamp": datetime.now().isoformat()
     }
 
+# Catch-all route to serve frontend for SPA routing
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    # Don't serve frontend for API routes
+    if full_path.startswith("api/"):
+        return {"error": "API endpoint not found"}
+    
+    # Serve frontend index.html for all other routes (SPA routing)
+    frontend_index = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist", "index.html")
+    if os.path.exists(frontend_index):
+        return FileResponse(frontend_index)
+    
+    return {"error": "Frontend not built"}
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run("simple_server:app", host="0.0.0.0", port=8001, reload=True)
