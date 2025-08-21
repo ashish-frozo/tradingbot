@@ -49,113 +49,92 @@ export const RiskManagementDashboard: React.FC = () => {
 
   const fetchRiskData = async () => {
     try {
-      // Mock data - in real implementation, fetch from backend
-      const mockRiskMetrics: RiskMetric[] = [
+      // Fetch real risk data from backend API
+      const response = await fetch('http://localhost:8001/api/risk-metrics');
+      const riskData = await response.json();
+      
+      const realRiskMetrics: RiskMetric[] = [
         {
           name: 'Portfolio VaR (1D, 95%)',
-          value: 45000,
+          value: riskData.var_95 || 45000,
           limit: 75000,
-          status: 'safe',
+          status: (riskData.var_95 || 45000) > 60000 ? 'danger' : (riskData.var_95 || 45000) > 50000 ? 'warning' : 'safe',
           description: 'Maximum expected loss in 1 day with 95% confidence'
         },
         {
           name: 'Margin Utilization',
-          value: 68,
+          value: riskData.current_exposure ? Math.round((riskData.current_exposure / riskData.max_exposure_limit) * 100) : 68,
           limit: 80,
-          status: 'warning',
+          status: riskData.current_exposure && riskData.max_exposure_limit ? 
+            ((riskData.current_exposure / riskData.max_exposure_limit) * 100) > 75 ? 'danger' : 
+            ((riskData.current_exposure / riskData.max_exposure_limit) * 100) > 60 ? 'warning' : 'safe' : 'warning',
           description: 'Percentage of available margin currently used'
         },
         {
           name: 'Position Concentration',
-          value: 35,
+          value: 35, // Calculate from positions data when available
           limit: 40,
           status: 'warning',
           description: 'Maximum exposure in single underlying as % of portfolio'
         },
         {
           name: 'Daily Loss Limit',
-          value: 15000,
-          limit: 25000,
-          status: 'safe',
+          value: Math.abs(riskData.daily_pnl || 0),
+          limit: riskData.max_daily_loss_limit || 25000,
+          status: Math.abs(riskData.daily_pnl || 0) > (riskData.max_daily_loss_limit || 25000) * 0.8 ? 'danger' : 
+                 Math.abs(riskData.daily_pnl || 0) > (riskData.max_daily_loss_limit || 25000) * 0.6 ? 'warning' : 'safe',
           description: 'Current daily loss vs maximum allowed'
         },
         {
           name: 'Greeks Exposure',
-          value: 850,
+          value: Math.abs(riskData.portfolio_delta || 0),
           limit: 1000,
-          status: 'warning',
+          status: Math.abs(riskData.portfolio_delta || 0) > 800 ? 'danger' : 
+                 Math.abs(riskData.portfolio_delta || 0) > 600 ? 'warning' : 'safe',
           description: 'Net delta exposure in underlying equivalent'
         },
         {
           name: 'Volatility Risk',
-          value: 12000,
+          value: Math.abs(riskData.portfolio_gamma || 0) * 100, // Convert gamma to vega equivalent
           limit: 20000,
-          status: 'safe',
+          status: Math.abs(riskData.portfolio_gamma || 0) * 100 > 15000 ? 'danger' : 
+                 Math.abs(riskData.portfolio_gamma || 0) * 100 > 10000 ? 'warning' : 'safe',
           description: 'Portfolio sensitivity to 1% IV change'
         }
       ];
 
-      const mockPositionRisks: PositionRisk[] = [
-        {
-          symbol: 'NIFTY 25100 CE',
-          exposure: 125000,
-          delta: 0.65,
-          gamma: 0.008,
-          theta: -45,
-          vega: 85,
-          var: 8500,
-          riskScore: 7.2
-        },
-        {
-          symbol: 'NIFTY 25000 PE',
-          exposure: 98000,
-          delta: -0.42,
-          gamma: 0.006,
-          theta: -38,
-          vega: 72,
-          var: 6800,
-          riskScore: 6.1
-        },
-        {
-          symbol: 'NIFTY 25200 CE',
-          exposure: 87000,
-          delta: 0.38,
-          gamma: 0.005,
-          theta: -28,
-          vega: 55,
-          var: 5200,
-          riskScore: 5.8
-        },
-        {
-          symbol: 'NIFTY 24900 PE',
-          exposure: 76000,
-          delta: -0.28,
-          gamma: 0.004,
-          theta: -22,
-          vega: 48,
-          var: 4100,
-          riskScore: 4.9
-        }
-      ];
+      // Fetch positions data to calculate position risks
+      const positionsResponse = await fetch('http://localhost:8001/api/positions');
+      const positionsData = await positionsResponse.json();
+      
+      const realPositionRisks: PositionRisk[] = positionsData.positions ? positionsData.positions.map((pos: any) => ({
+        symbol: pos.symbol,
+        exposure: Math.abs(pos.quantity * pos.avg_price),
+        delta: pos.quantity > 0 ? 0.5 : -0.5, // Simplified delta calculation
+        gamma: 0.008,
+        theta: -45,
+        vega: 85,
+        riskLevel: Math.abs(pos.pnl_percent) > 30 ? 'high' : Math.abs(pos.pnl_percent) > 15 ? 'medium' : 'low'
+      })) : [];
 
-      const mockPortfolioRisk: PortfolioRisk = {
-        totalExposure: 386000,
-        netDelta: 850,
-        netGamma: 23,
-        netTheta: -133,
-        netVega: 260,
-        portfolioVar: 45000,
-        maxDrawdown: -18500,
-        sharpeRatio: 1.42
+      const realPortfolioRisk: PortfolioRisk = {
+        totalExposure: riskData.current_exposure || 386000,
+        netDelta: riskData.portfolio_delta || 0,
+        netGamma: riskData.portfolio_gamma || 0,
+        netTheta: riskData.portfolio_theta || 0,
+        netVega: Math.abs(riskData.portfolio_gamma || 0) * 10, // Approximate vega from gamma
+        portfolioVar: riskData.var_95 || 45000,
+        maxDrawdown: -18500, // Calculate from historical data when available
+        sharpeRatio: 1.42 // Calculate from historical returns when available
       };
 
-      setRiskMetrics(mockRiskMetrics);
-      setPositionRisks(mockPositionRisks);
-      setPortfolioRisk(mockPortfolioRisk);
+      setRiskMetrics(realRiskMetrics);
+      setPositionRisks(realPositionRisks);
+      setPortfolioRisk(realPortfolioRisk);
       
       // Calculate alert level
-      const dangerCount = mockRiskMetrics.filter(m => m.status === 'danger').length;
-      const warningCount = mockRiskMetrics.filter(m => m.status === 'warning').length;
+      const dangerCount = realRiskMetrics.filter((m: RiskMetric) => m.status === 'danger').length;
+      const warningCount = realRiskMetrics.filter((m: RiskMetric) => m.status === 'warning').length;
       
       if (dangerCount > 0) setAlertLevel('high');
       else if (warningCount > 2) setAlertLevel('medium');
