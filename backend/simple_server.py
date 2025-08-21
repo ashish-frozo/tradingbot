@@ -3,7 +3,7 @@
 Simple FastAPI server for testing and basic functionality
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -11,6 +11,10 @@ import uvicorn
 from datetime import datetime
 import random
 import os
+
+# Create API router for all API endpoints
+from fastapi import APIRouter
+api_router = APIRouter(prefix="/api")
 
 app = FastAPI(title="Nifty Trade Setup API", version="1.0.0")
 
@@ -23,19 +27,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files for frontend with proper MIME types
+# Define frontend path
 frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.exists(frontend_dist_path):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist_path, "assets")), name="assets")
-    app.mount("/static", StaticFiles(directory=frontend_dist_path), name="static")
-
-@app.get("/")
-async def root():
-    # Serve the frontend index.html if it exists, otherwise return API info
-    frontend_index = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist", "index.html")
-    if os.path.exists(frontend_index):
-        return FileResponse(frontend_index)
-    return {"message": "Nifty Trade Setup API", "status": "running", "timestamp": datetime.now().isoformat()}
 
 @app.get("/health")
 async def health():

@@ -40,5 +40,5 @@ EXPOSE 8001
 ENV PYTHONPATH=/app
 ENV NODE_ENV=production
 
-# Start the backend server
-CMD ["python", "backend/simple_server.py"]
+# Start the FastAPI server
+CMD ["python", "backend/production_server.py"]
