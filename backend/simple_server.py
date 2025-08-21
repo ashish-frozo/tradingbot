@@ -23,9 +23,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files for frontend
+# Mount static files for frontend with proper MIME types
 frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.exists(frontend_dist_path):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist_path, "assets")), name="assets")
     app.mount("/static", StaticFiles(directory=frontend_dist_path), name="static")
 
 @app.get("/")
@@ -436,6 +437,15 @@ async def get_calibration_results():
         "timestamp": datetime.now().isoformat()
     }
 
+# Serve specific static files with proper MIME types
+@app.get("/vite.svg")
+async def serve_vite_svg():
+    frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+    vite_svg_path = os.path.join(frontend_dist_path, "vite.svg")
+    if os.path.exists(vite_svg_path):
+        return FileResponse(vite_svg_path, media_type="image/svg+xml")
+    return {"error": "File not found"}
+
 # Catch-all route to serve frontend for SPA routing
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
@@ -443,10 +453,25 @@ async def serve_frontend(full_path: str):
     if full_path.startswith("api/"):
         return {"error": "API endpoint not found"}
     
+    # Serve static files from dist directory
+    frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+    file_path = os.path.join(frontend_dist_path, full_path)
+    
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        # Determine MIME type based on file extension
+        if full_path.endswith('.js'):
+            return FileResponse(file_path, media_type="application/javascript")
+        elif full_path.endswith('.css'):
+            return FileResponse(file_path, media_type="text/css")
+        elif full_path.endswith('.svg'):
+            return FileResponse(file_path, media_type="image/svg+xml")
+        else:
+            return FileResponse(file_path)
+    
     # Serve frontend index.html for all other routes (SPA routing)
-    frontend_index = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist", "index.html")
+    frontend_index = os.path.join(frontend_dist_path, "index.html")
     if os.path.exists(frontend_index):
-        return FileResponse(frontend_index)
+        return FileResponse(frontend_index, media_type="text/html")
     
     return {"error": "Frontend not built"}
 
