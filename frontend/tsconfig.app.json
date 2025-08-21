@@ -12,7 +12,9 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
-    "noEmit": true,
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./dist",
     "jsx": "react-jsx",
 
     /* Linting */
@@ -23,5 +25,6 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["**/*.d.ts"]
 }
