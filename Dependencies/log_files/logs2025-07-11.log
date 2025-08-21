@@ -1,0 +1,14 @@
+INFO:2025-07-11 09:04:56,652:MainThread:Dhan.py  started system
+INFO:2025-07-11 09:04:56,652:MainThread:STARTED THE PROGRAM
+ERROR:2025-07-11 09:05:04,782:MainThread:Error at Gettting balance as {'status': 'failure', 'remarks': {'error_code': 'DH-901', 'error_type': 'Invalid_Authentication', 'error_message': 'Client ID or user generated access token is invalid or expired.'}, 'data': {'errorType': 'Invalid_Authentication', 'errorCode': 'DH-901', 'errorMessage': 'Client ID or user generated access token is invalid or expired.'}}
+Traceback (most recent call last):
+  File "/Users/ashishdhiman/niftytradesetup/niftytradesetup/Dhan_Tradehull_V2.py", line 409, in get_balance
+    raise Exception(response)
+Exception: {'status': 'failure', 'remarks': {'error_code': 'DH-901', 'error_type': 'Invalid_Authentication', 'error_message': 'Client ID or user generated access token is invalid or expired.'}, 'data': {'errorType': 'Invalid_Authentication', 'errorCode': 'DH-901', 'errorMessage': 'Client ID or user generated access token is invalid or expired.'}}
+ERROR:2025-07-11 09:05:06,847:MainThread:Exception at calling ltp as {'status': 'failure', 'remarks': {'error_code': None, 'error_type': None, 'error_message': None}, 'data': {'data': {'808': 'Authentication Failed - Client ID or Token invalid'}, 'status': 'failed'}}
+Traceback (most recent call last):
+  File "/Users/ashishdhiman/niftytradesetup/niftytradesetup/Dhan_Tradehull_V2.py", line 697, in get_ltp_data
+    raise Exception(data)
+Exception: {'status': 'failure', 'remarks': {'error_code': None, 'error_type': None, 'error_message': None}, 'data': {'data': {'808': 'Authentication Failed - Client ID or Token invalid'}, 'status': 'failed'}}
+INFO:2025-07-11 10:48:55,128:MainThread:Dhan.py  started system
+INFO:2025-07-11 10:48:55,128:MainThread:STARTED THE PROGRAM

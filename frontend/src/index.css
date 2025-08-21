@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Trading-specific component styles */
+@layer components {
+  .metric-card {
+    @apply bg-white border border-gray-200 rounded-lg p-4 shadow-sm dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .metric-value {
+    @apply text-2xl font-bold font-mono;
+  }
+
+  .metric-label {
+    @apply text-sm text-gray-600 dark:text-gray-400;
+  }
+
+  .status-badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .status-connected {
+    @apply bg-green-100 text-green-800 dark:bg-green-800/20 dark:text-green-400;
+  }
+
+  .status-disconnected {
+    @apply bg-red-100 text-red-800 dark:bg-red-800/20 dark:text-red-400;
+  }
+
+  .status-warning {
+    @apply bg-yellow-100 text-yellow-800 dark:bg-yellow-800/20 dark:text-yellow-400;
+  }
+
+  .position-card {
+    @apply bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .greek-value {
+    @apply font-mono text-sm;
+  }
+
+  .pnl-positive {
+    @apply text-green-600 dark:text-green-400;
+  }
+
+  .pnl-negative {
+    @apply text-red-600 dark:text-red-400;
+  }
+
+  .pnl-neutral {
+    @apply text-gray-600 dark:text-gray-400;
+  }
+
+  .kill-switch {
+    @apply bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg 
+           transform transition-all duration-200 hover:scale-105 active:scale-95;
+  }
+
+  .header-nav {
+    @apply flex items-center space-x-4 p-4 bg-white border-b border-gray-200 dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .sidebar {
+    @apply w-64 bg-white border-r border-gray-200 h-full flex flex-col dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .main-content {
+    @apply flex-1 p-6 overflow-auto bg-gray-50 dark:bg-gray-900;
+  }
+
+  .grid-positions {
+    @apply grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3;
+  }
+
+  .grid-metrics {
+    @apply grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4;
+  }
+
+  .loading-spinner {
+    @apply animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600;
+  }
+
+  .fade-in {
+    @apply animate-fadeIn;
+  }
+
+  .slide-up {
+    @apply animate-slideUp;
+  }
+}
+
+/* Chart and visualization styles */
+@layer utilities {
+  .chart-container {
+    @apply bg-white border border-gray-200 rounded-lg p-4 dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .chart-tooltip {
+    @apply bg-white border border-gray-200 rounded shadow-lg p-2 text-sm dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .latency-low {
+    @apply text-green-600 dark:text-green-400;
+  }
+
+  .latency-medium {
+    @apply text-yellow-600 dark:text-yellow-400;
+  }
+
+  .latency-high {
+    @apply text-red-600 dark:text-red-400;
+  }
+}
+
+/* Custom dark mode styles */
+@media (prefers-color-scheme: dark) {
+  body {
+    @apply bg-gray-900 text-white;
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

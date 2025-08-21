@@ -1,0 +1,29 @@
+{
+  "name": "nifty-trade-setup",
+  "version": "1.0.0",
+  "description": "Nifty Options Trading Platform with Market Sentiment Analysis",
+  "main": "backend/simple_server.py",
+  "scripts": {
+    "start": "python backend/simple_server.py",
+    "build": "cd frontend && npm run build",
+    "install-deps": "cd frontend && npm install",
+    "dev": "python backend/simple_server.py"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "python": ">=3.11.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ashish-frozo/tradingbot"
+  },
+  "keywords": [
+    "trading",
+    "nifty",
+    "options",
+    "market-sentiment",
+    "dhan-api"
+  ],
+  "author": "Ashish Dhiman",
+  "license": "MIT"
+}

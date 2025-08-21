@@ -1,0 +1,3 @@
+2025-07-10 03:24:25.495 | INFO     | app.core.logging:log_performance_metric:139 - Performance metric: slow_request = 1015.3598785400391ms
+2025-07-10 03:26:29.574 | INFO     | app.core.logging:log_performance_metric:139 - Performance metric: slow_request = 1022.852897644043ms
+2025-07-10 05:02:16.591 | INFO     | app.core.logging:log_performance_metric:139 - Performance metric: slow_request = 1022.8335857391357ms
