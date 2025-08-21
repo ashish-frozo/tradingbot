@@ -25,39 +25,53 @@ app.add_middleware(
 # Define frontend path
 frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
+# Global Dhan client to avoid re-initializing and re-downloading instrument file
+_dhan_client = None
+_dhan_client_initialized = False
+
 # API Routes
 @app.get("/api/health")
 async def health():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-@app.get("/api/equity-data")
-async def get_equity_data():
-    """Get real equity data from Dhan API"""
-    try:
+def get_dhan_client():
+    """Get or initialize Dhan client (singleton pattern to avoid re-downloading instrument file)"""
+    global _dhan_client, _dhan_client_initialized
+    
+    if not _dhan_client_initialized:
         import sys
         import os
         sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from Dhan_Tradehull_V2 import Tradehull
         from dotenv import load_dotenv
-        import pandas as pd
         
         load_dotenv()
         
-        # Initialize Dhan client
         client_id = os.getenv('DHAN_CLIENT_ID')
         access_token = os.getenv('DHAN_ACCESS_TOKEN')
         
         if not client_id or not access_token:
             raise Exception("Dhan credentials not found in environment")
             
-        dhan = Tradehull(client_id, access_token)
+        _dhan_client = Tradehull(client_id, access_token)
+        _dhan_client_initialized = True
+        print("Dhan client initialized - instrument file downloaded")
+    
+    return _dhan_client
+
+@app.get("/api/equity-data")
+async def get_equity_data():
+    """Get real equity data from Dhan API"""
+    try:
+        dhan = get_dhan_client()
         
         # Get fund limits to calculate equity
-        fund_data = dhan.get_fund_limits()
+        fund_response = dhan.Dhan.get_fund_limits()
         
-        if fund_data is not None:
+        if fund_response and fund_response.get('status') != 'failure':
+            fund_data = fund_response.get('data', {})
             # Extract equity values from fund data
-            available_cash = float(fund_data.get('availablecash', 0))
+            available_cash = float(fund_data.get('availabelBalance', 0))
             used_margin = float(fund_data.get('utilizedAmount', 0))
             total_equity = available_cash + used_margin
             
@@ -143,22 +157,7 @@ async def get_equity_data():
 async def get_positions():
     """Get real positions from Dhan API"""
     try:
-        import sys
-        import os
-        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from Dhan_Tradehull_V2 import Tradehull
-        from dotenv import load_dotenv
-        
-        load_dotenv()
-        
-        # Initialize Dhan client
-        client_id = os.getenv('DHAN_CLIENT_ID')
-        access_token = os.getenv('DHAN_ACCESS_TOKEN')
-        
-        if not client_id or not access_token:
-            raise Exception("Dhan credentials not found in environment")
-            
-        dhan = Tradehull(client_id, access_token)
+        dhan = get_dhan_client()
         
         # Get positions data
         positions_data = dhan.get_positions()

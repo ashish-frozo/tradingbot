@@ -1,14 +1,16 @@
-# Use Python base image for simpler deployment
+# Use Python base image with nginx
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies including Node.js
+# Install system dependencies including Node.js and nginx
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     curl \
+    nginx \
+    supervisor \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
