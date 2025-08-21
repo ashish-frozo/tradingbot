@@ -1,0 +1,16 @@
+[phases.setup]
+nixPkgs = ['nodejs', 'python311', 'gcc']
+
+[phases.install]
+cmds = [
+    'cd frontend && npm ci',
+    'pip install -r backend/requirements.txt'
+]
+
+[phases.build]
+cmds = [
+    'cd frontend && npm run build'
+]
+
+[start]
+cmd = 'python backend/simple_server.py'
