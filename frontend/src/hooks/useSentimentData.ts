@@ -36,7 +36,7 @@ interface RegimePerformance {
 
 export const useSentimentData = () => {
   const [sentimentData, setSentimentData] = useState<SentimentData | null>(null);
-  const [zscoreStats, setZscoreStats] = useState<ZScoreStats | null>(null);
+  const [zscoreStats] = useState<ZScoreStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

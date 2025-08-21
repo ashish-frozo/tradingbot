@@ -158,7 +158,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ className = '' }) => {
   };
 
   const unacknowledgedAlerts = alerts.filter(a => !a.acknowledged);
-  const acknowledgedAlerts = alerts.filter(a => a.acknowledged);
+  // const acknowledgedAlerts = alerts.filter(alert => alert.acknowledged);
 
   return (
     <div className={`space-y-6 ${className}`}>

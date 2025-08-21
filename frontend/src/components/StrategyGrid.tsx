@@ -18,7 +18,7 @@ export const StrategyGrid: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {strategies.map((strategy, index) => (
-            <StrategyCard key={strategy.id || index} strategy={strategy} />
+            <StrategyCard key={strategy.name} strategy={strategy} />
           ))}
         </div>
       )}

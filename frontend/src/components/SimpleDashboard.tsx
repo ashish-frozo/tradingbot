@@ -3,16 +3,17 @@ import { EquityCurve } from './EquityCurve';
 import { PositionsTable } from './PositionsTable';
 import { SimpleRiskPanel } from './SimpleRiskPanel';
 import { useEquityData, usePositions, useRiskMetrics, useMarketData } from '../hooks/useApiData';
+import { useAppStore } from '../store/appStore';
 
 export const SimpleDashboard: React.FC = () => {
   // Load all data from APIs
   const { data: equityData, loading: equityLoading, error: equityError } = useEquityData();
-  const { data: positions, loading: positionsLoading, error: positionsError } = usePositions();
+  const { positions } = useAppStore();
   const { data: riskMetrics, loading: riskLoading, error: riskError } = useRiskMetrics();
   const { data: marketData, loading: marketLoading, error: marketError } = useMarketData();
 
-  const isLoading = equityLoading || positionsLoading || riskLoading || marketLoading;
-  const hasError = equityError || positionsError || riskError || marketError;
+  const isLoading = equityLoading || riskLoading || marketLoading;
+  const hasError = equityError || riskError || marketError;
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">

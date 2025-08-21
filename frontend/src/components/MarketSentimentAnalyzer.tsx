@@ -37,6 +37,7 @@ interface OptionData {
   };
 }
 
+/*
 interface MarketData {
   spot: number;
   timestamp: string;
@@ -54,7 +55,7 @@ interface SentimentResult {
     RR25: number;
     GEX_atm_z: number;
     pin_dist_pct: number;
-    ZG: number;
+    IV_rank: number;
     NDT_z: number;
     VT: number;
     FB_ratio: number;
@@ -69,6 +70,7 @@ interface HistoricalStats {
   charm_mean: number;
   charm_std: number;
 }
+*/
 
 const MarketSentimentAnalyzer: React.FC = () => {
   const { sentimentData, loading, error } = useSentimentData();
@@ -84,72 +86,6 @@ const MarketSentimentAnalyzer: React.FC = () => {
     const endTime = 9 * 60 + 45;   // 09:45
     return currentTime >= startTime && currentTime <= endTime;
   };
-
-  // Generate mock option chain data with Greeks
-  const generateMockOptionChain = (spot: number): OptionData[] => {
-    const strikes = [];
-    const atmStrike = Math.round(spot / 50) * 50;
-    
-    for (let i = -10; i <= 10; i++) {
-      strikes.push(atmStrike + i * 50);
-    }
-
-    return strikes.map(strike => {
-      const moneyness = strike / spot;
-      const dte = 7; // 7 days to expiry
-      
-      // Mock IV with skew
-      const callIV = 0.15 + Math.max(0, (moneyness - 1) * 0.3);
-      const putIV = 0.15 + Math.max(0, (1 - moneyness) * 0.4);
-      
-      // Mock Greeks
-      const callDelta = Math.max(0, Math.min(1, 0.5 + (spot - strike) / (spot * 0.2)));
-      const putDelta = callDelta - 1;
-      const gamma = Math.exp(-Math.pow((strike - spot) / (spot * 0.1), 2)) * 0.001;
-      const vega = gamma * spot * 0.01;
-      const theta = -gamma * spot * 0.02 / 365;
-      
-      // Second-order Greeks
-      const vanna = vega * (1 - callDelta) / callIV;
-      const charm = -gamma * (2 * (Math.log(spot/strike) + 0.05 * dte/365) / (dte/365) + 0.05);
-
-      return {
-        strike,
-        call: {
-          ltp: Math.max(0.05, spot - strike + 5),
-          bid: Math.max(0.05, spot - strike + 4),
-          ask: Math.max(0.05, spot - strike + 6),
-          volume: Math.floor(Math.random() * 1000),
-          oi: Math.floor(Math.random() * 5000),
-          oi_change: Math.floor((Math.random() - 0.5) * 1000),
-          iv: callIV,
-          delta: callDelta,
-          gamma,
-          theta,
-          vega,
-          vanna,
-          charm
-        },
-        put: {
-          ltp: Math.max(0.05, strike - spot + 5),
-          bid: Math.max(0.05, strike - spot + 4),
-          ask: Math.max(0.05, strike - spot + 6),
-          volume: Math.floor(Math.random() * 1000),
-          oi: Math.floor(Math.random() * 5000),
-          oi_change: Math.floor((Math.random() - 0.5) * 1000),
-          iv: putIV,
-          delta: putDelta,
-          gamma,
-          theta: theta,
-          vega,
-          vanna: -vanna,
-          charm: -charm
-        }
-      };
-    });
-  };
-
-
 
   useEffect(() => {
     const active = checkActiveWindow();

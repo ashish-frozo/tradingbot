@@ -26,7 +26,7 @@ export const AlphaDecayChart: React.FC<AlphaDecayChartProps> = ({ className = ''
   // Generate mock alpha decay data
   const generateMockAlphaDecayData = () => {
     const data = [];
-    const now = Date.now();
+    // const now = Date.now();
     
     // Generate historical trade data
     for (let i = 0; i < 200; i++) {
