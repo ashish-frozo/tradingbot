@@ -11,6 +11,7 @@ import uvicorn
 from datetime import datetime
 import random
 import os
+import time
 
 # Create API router for all API endpoints
 from fastapi import APIRouter
@@ -277,30 +278,70 @@ async def get_option_chain():
             
         dhan = Tradehull(ClientCode=client_id, token_id=access_token)
         
-        # Get real option chain data from Dhan API
-        # Try current expiry first, then next expiry if current is empty
-        oc_result = None
-        for expiry_index in [0, 1]:
-            try:
-                oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
-                if isinstance(oc_result, tuple) and len(oc_result) == 2:
-                    atm_strike, oc_df = oc_result
-                    if hasattr(oc_df, 'empty') and not oc_df.empty:
-                        print(f"Found option chain data with expiry index {expiry_index}")
-                        break
-                    else:
-                        print(f"Empty data for expiry index {expiry_index}, trying next...")
-                else:
-                    oc_df = oc_result
-            except Exception as exp_error:
-                print(f"Error with expiry index {expiry_index}: {exp_error}")
-                if "Too many requests" in str(exp_error):
-                    break
-                continue
+        # SMART HYBRID APPROACH: Try to get real data, but use intelligent fallback
+        print("🔄 Attempting to get REAL option chain data...")
         
-        # Set to None if no valid data found
-        if oc_result is None or (isinstance(oc_result, tuple) and len(oc_result) == 2 and hasattr(oc_result[1], 'empty') and oc_result[1].empty):
-            oc_df = None
+        oc_df = None
+        real_data_source = "none"
+        atm_strike = None
+        
+        try:
+            # Get expiry list first
+            expiry_list = dhan.get_expiry_list('NIFTY', 'NFO')
+            print(f"📅 Available expiries: {expiry_list}")
+            
+            # Try next expiry first (index 1) as current might be empty/expired
+            expiry_indices_to_try = [1, 0] if len(expiry_list) > 1 else [0]
+            
+            for expiry_index in expiry_indices_to_try:
+                if expiry_index >= len(expiry_list):
+                    continue
+                    
+                expiry_date = expiry_list[expiry_index]
+                print(f"📡 Trying real API for expiry {expiry_date} (index {expiry_index})...")
+                
+                try:
+                    # Small delay to avoid immediate rate limiting
+                    time.sleep(1)
+                    
+                    oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
+                    
+                    if isinstance(oc_result, tuple) and len(oc_result) == 2:
+                        atm_strike, oc_df = oc_result
+                        if hasattr(oc_df, 'empty') and not oc_df.empty:
+                            print(f"🎉 SUCCESS! Got REAL option chain data from expiry {expiry_date}")
+                            print(f"📊 ATM: {atm_strike}, Rows: {len(oc_df)}")
+                            real_data_source = "api"
+                            break
+                        else:
+                            print(f"⚠️ Expiry {expiry_date} returned empty data")
+                    
+                except Exception as api_error:
+                    print(f"❌ API error for expiry {expiry_date}: {api_error}")
+                    if "Too many requests" in str(api_error):
+                        print("🚫 Rate limited - will use smart fallback")
+                        break
+                    continue
+            
+        except Exception as e:
+            print(f"❌ Error getting real option chain: {e}")
+        
+        # If we got real data, use it
+        if oc_df is not None and hasattr(oc_df, 'empty') and not oc_df.empty:
+            option_chain_data = oc_df.to_dict('records')
+            
+            return {
+                "status": "success",
+                "data": option_chain_data,
+                "timestamp": datetime.now().isoformat(),
+                "note": f"🎉 REAL option chain data from Dhan API",
+                "source": "api",
+                "metadata": {
+                    "atm_strike": atm_strike,
+                    "rows": len(oc_df),
+                    "expiry_used": expiry_list[expiry_indices_to_try[0]] if expiry_list else "unknown"
+                }
+            }
         
         if oc_df is None or (hasattr(oc_df, 'empty') and oc_df.empty):
             print("Option chain data not available (early market hours or API limitation) - using realistic fallback with live spot price")
