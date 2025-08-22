@@ -12,6 +12,7 @@ from datetime import datetime
 import random
 import os
 import time
+from market_kill_switch import should_allow_data_fetching, get_kill_switch_status, activate_manual_kill_switch, deactivate_manual_kill_switch, activate_emergency_stop, deactivate_emergency_stop
 
 # Create API router for all API endpoints
 from fastapi import APIRouter
@@ -35,9 +36,53 @@ frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "
 async def health():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
+# Kill Switch Endpoints
+@app.get("/api/kill-switch/status")
+async def get_kill_switch_status_endpoint():
+    """Get kill switch status and market hours information"""
+    return get_kill_switch_status()
+
+@app.post("/api/kill-switch/activate")
+async def activate_kill_switch():
+    """Manually activate the kill switch to stop all data fetching"""
+    message = activate_manual_kill_switch()
+    return {"status": "success", "message": message, "timestamp": datetime.now().isoformat()}
+
+@app.post("/api/kill-switch/deactivate")
+async def deactivate_kill_switch():
+    """Manually deactivate the kill switch to restore data fetching"""
+    message = deactivate_manual_kill_switch()
+    return {"status": "success", "message": message, "timestamp": datetime.now().isoformat()}
+
+@app.post("/api/kill-switch/emergency-stop")
+async def emergency_stop():
+    """Activate emergency stop (highest priority kill switch)"""
+    message = activate_emergency_stop()
+    return {"status": "success", "message": message, "timestamp": datetime.now().isoformat()}
+
+@app.post("/api/kill-switch/emergency-restore")
+async def emergency_restore():
+    """Deactivate emergency stop"""
+    message = deactivate_emergency_stop()
+    return {"status": "success", "message": message, "timestamp": datetime.now().isoformat()}
+
 @app.get("/api/equity-data")
 async def get_equity_data():
     """Get real equity data from Dhan API"""
+    
+    # Check kill switch first
+    kill_switch_status = should_allow_data_fetching()
+    if not kill_switch_status['allowed']:
+        print(f"🚫 Kill switch active for equity data: {kill_switch_status['message']}")
+        return {
+            "status": "blocked",
+            "message": kill_switch_status['message'],
+            "reason": kill_switch_status['reason'],
+            "current_time_ist": kill_switch_status['current_time_ist'],
+            "timestamp": datetime.now().isoformat(),
+            "note": "Equity data fetching blocked by kill switch"
+        }
+    
     try:
         import sys
         import os
@@ -259,6 +304,23 @@ async def get_market_data():
 @app.get("/api/option-chain")
 async def get_option_chain():
     """Get option chain data using Dhan_Tradehull_V2.py"""
+    
+    # Check kill switch first
+    kill_switch_status = should_allow_data_fetching()
+    if not kill_switch_status['allowed']:
+        print(f"🚫 Kill switch active: {kill_switch_status['message']}")
+        return {
+            "status": "blocked",
+            "message": kill_switch_status['message'],
+            "reason": kill_switch_status['reason'],
+            "current_time_ist": kill_switch_status['current_time_ist'],
+            "data": [],
+            "timestamp": datetime.now().isoformat(),
+            "note": "Data fetching blocked by kill switch - check market hours or manual override"
+        }
+    
+    print(f"✅ Kill switch check passed: {kill_switch_status['message']}")
+    
     try:
         # Import and initialize Dhan client
         import sys
