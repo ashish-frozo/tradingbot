@@ -261,13 +261,29 @@ async def get_option_chain():
         dhan = get_dhan_client()
         
         # Get real option chain data from Dhan API
-        # Using NIFTY with current expiry and 21 strikes (10 on each side of ATM)
-        oc_result = dhan.get_option_chain("NIFTY", "NFO", 0, 21)
+        # Try current expiry first, then next expiry if current is empty
+        oc_result = None
+        for expiry_index in [0, 1]:
+            try:
+                oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
+                if isinstance(oc_result, tuple) and len(oc_result) == 2:
+                    atm_strike, oc_df = oc_result
+                    if hasattr(oc_df, 'empty') and not oc_df.empty:
+                        print(f"Found option chain data with expiry index {expiry_index}")
+                        break
+                    else:
+                        print(f"Empty data for expiry index {expiry_index}, trying next...")
+                else:
+                    oc_df = oc_result
+            except Exception as exp_error:
+                print(f"Error with expiry index {expiry_index}: {exp_error}")
+                if "Too many requests" in str(exp_error):
+                    break
+                continue
         
-        if isinstance(oc_result, tuple) and len(oc_result) == 2:
-            atm_strike, oc_df = oc_result
-        else:
-            oc_df = oc_result
+        # Set to None if no valid data found
+        if oc_result is None or (isinstance(oc_result, tuple) and len(oc_result) == 2 and hasattr(oc_result[1], 'empty') and oc_result[1].empty):
+            oc_df = None
         
         if oc_df is None or (hasattr(oc_df, 'empty') and oc_df.empty):
             print("Option chain data not available (early market hours or API limitation) - using realistic fallback with live spot price")
@@ -429,12 +445,31 @@ async def get_greeks_range():
         oc_df = None
         
         try:
-            oc_result = dhan.get_option_chain("NIFTY", "NFO", 0, 21)
-            if isinstance(oc_result, tuple) and len(oc_result) == 2:
-                atm_strike, oc_df = oc_result
-                print(f"ATM Strike from Dhan: {atm_strike}")
-            else:
-                oc_df = oc_result
+            # Try current expiry first (0), then next expiry (1) if current is empty
+            oc_result = None
+            for expiry_index in [0, 1]:
+                try:
+                    oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
+                    if isinstance(oc_result, tuple) and len(oc_result) == 2:
+                        atm_strike, oc_df = oc_result
+                        if hasattr(oc_df, 'empty') and not oc_df.empty:
+                            print(f"Found option chain data with expiry index {expiry_index}, ATM: {atm_strike}")
+                            break
+                        else:
+                            print(f"Empty data for expiry index {expiry_index}, trying next...")
+                    else:
+                        oc_df = oc_result
+                except Exception as exp_error:
+                    print(f"Error with expiry index {expiry_index}: {exp_error}")
+                    if "Too many requests" in str(exp_error):
+                        print("Rate limited - using fallback data")
+                        break
+                    continue
+            
+            # If we still don't have data, set to None to trigger fallback
+            if oc_result is None or (isinstance(oc_result, tuple) and len(oc_result) == 2 and hasattr(oc_result[1], 'empty') and oc_result[1].empty):
+                oc_df = None
+                
         except Exception as api_error:
             print(f"Dhan API error: {api_error}")
             oc_df = None
