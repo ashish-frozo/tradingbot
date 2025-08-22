@@ -56,7 +56,7 @@ def get_dhan_client():
         if not client_id or not access_token:
             raise Exception("Dhan credentials not found in environment")
             
-        _dhan_client = Tradehull(client_id, access_token)
+        _dhan_client = Tradehull(ClientCode=client_id, token_id=access_token)
         _dhan_client_initialized = True
         print("Dhan client initialized - instrument file downloaded")
     
