@@ -3,13 +3,16 @@
 Railway-optimized server with proper static file handling
 """
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
 import uvicorn
 from datetime import datetime
-import random
+import json
+import numpy as np
 import os
+import random
 
 app = FastAPI(title="Nifty Trade Setup API", version="1.0.0")
 
@@ -253,75 +256,159 @@ async def get_market_data():
 
 @app.get("/api/option-chain")
 async def get_option_chain():
-    """Get option chain data using Dhan API"""
+    """Get real option chain data using Dhan API"""
     try:
         dhan = get_dhan_client()
         
-        # Get current Nifty price for ATM calculation
-        spot_price = 25150.30  # In production, get from live market data
+        # Get real option chain data from Dhan API
+        # Using NIFTY with current expiry and 21 strikes (10 on each side of ATM)
+        oc_result = dhan.get_option_chain("NIFTY", "NFO", 0, 21)
         
-        # Calculate ATM and nearby strikes
-        atm_strike = round(spot_price / 50) * 50
-        strikes = [atm_strike + i * 50 for i in range(-10, 11)]
+        if isinstance(oc_result, tuple) and len(oc_result) == 2:
+            atm_strike, oc_df = oc_result
+        else:
+            oc_df = oc_result
         
-        # Mock option chain data structure (replace with real Dhan API call)
+        if oc_df is None or oc_df.empty:
+            print("Market closed or no option chain data - generating realistic fallback data")
+            # Generate realistic option chain data using current spot price
+            spot_data = dhan.get_ltp_data("NIFTY")
+            spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
+            
+            # Generate realistic option chain
+            atm_strike = round(spot_price / 50) * 50
+            strikes = [atm_strike + i * 50 for i in range(-10, 11)]
+            
+            option_chain = []
+            for strike in strikes:
+                distance = abs(strike - spot_price)
+                is_itm_call = strike < spot_price
+                is_itm_put = strike > spot_price
+                
+                # Realistic option pricing
+                call_intrinsic = max(0, spot_price - strike)
+                put_intrinsic = max(0, strike - spot_price)
+                
+                # Time value based on distance from ATM
+                time_value = 50 * (0.15 + distance / spot_price * 0.05)
+                
+                call_price = call_intrinsic + time_value * (0.8 if is_itm_call else 1.2)
+                put_price = put_intrinsic + time_value * (0.8 if is_itm_put else 1.2)
+                
+                # Realistic OI and volume based on distance from ATM
+                base_oi = max(5000, 80000 - distance * 150)
+                base_volume = max(500, 15000 - distance * 100)
+                
+                # Greeks calculations
+                call_delta = max(0.05, min(0.95, 0.5 + (spot_price - strike) / (2 * spot_price)))
+                put_delta = call_delta - 1
+                gamma = 0.015 * max(0.1, 1 - distance / (0.8 * spot_price))
+                
+                option_chain.append({
+                    "strike": strike,
+                    "call": {
+                        "ltp": round(call_price, 2),
+                        "bid": round(call_price - 2, 2),
+                        "ask": round(call_price + 2, 2),
+                        "volume": int(base_volume * np.random.uniform(0.7, 1.3)),
+                        "oi": int(base_oi * (1.3 if is_itm_call else 0.9)),
+                        "iv": round(0.15 + distance / spot_price * 0.08, 4),
+                        "delta": round(call_delta, 4),
+                        "gamma": round(gamma, 4),
+                        "theta": round(-gamma * 12, 4),
+                        "vega": round(gamma * 120, 4)
+                    },
+                    "put": {
+                        "ltp": round(put_price, 2),
+                        "bid": round(put_price - 2, 2),
+                        "ask": round(put_price + 2, 2),
+                        "volume": int(base_volume * np.random.uniform(0.7, 1.3)),
+                        "oi": int(base_oi * (1.3 if is_itm_put else 0.9)),
+                        "iv": round(0.15 + distance / spot_price * 0.08, 4),
+                        "delta": round(put_delta, 4),
+                        "gamma": round(gamma, 4),
+                        "theta": round(-gamma * 12, 4),
+                        "vega": round(gamma * 120, 4)
+                    }
+                })
+            
+            return {
+                "symbol": "NIFTY",
+                "spot_price": spot_price,
+                "expiry": "2025-08-28",
+                "option_chain": option_chain,
+                "timestamp": datetime.now().isoformat(),
+                "data_source": "fallback_realistic"
+            }
+        
+        # Get current Nifty spot price
+        spot_data = dhan.get_ltp_data("NIFTY")
+        spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
+        
+        # Convert Dhan option chain format to our API format
         option_chain = []
         
-        for strike in strikes:
-            # Calculate theoretical Greeks and prices
-            call_iv = 0.15 + abs(strike - spot_price) / spot_price * 0.1
-            put_iv = 0.15 + abs(strike - spot_price) / spot_price * 0.1
+        for _, row in oc_df.iterrows():
+            strike = row.get("Strike Price", 0)
             
-            call_price = max(spot_price - strike, 0) + 50 * call_iv
-            put_price = max(strike - spot_price, 0) + 50 * put_iv
+            # Call data
+            call_data = {
+                "ltp": row.get("CE LTP", 0),
+                "bid": row.get("CE Bid", 0),
+                "ask": row.get("CE Ask", 0),
+                "volume": row.get("CE Volume", 0),
+                "oi": row.get("CE OI", 0),
+                "iv": row.get("CE IV", 0),
+                "delta": row.get("CE Delta", 0),
+                "gamma": row.get("CE Gamma", 0),
+                "theta": row.get("CE Theta", 0),
+                "vega": row.get("CE Vega", 0)
+            }
             
-            # Mock Greeks calculation
-            call_delta = 0.5 if strike == atm_strike else (0.8 if strike < spot_price else 0.2)
-            put_delta = call_delta - 1
-            gamma = 0.01 * (1 - abs(strike - spot_price) / (2 * spot_price))
+            # Put data
+            put_data = {
+                "ltp": row.get("PE LTP", 0),
+                "bid": row.get("PE Bid", 0),
+                "ask": row.get("PE Ask", 0),
+                "volume": row.get("PE Volume", 0),
+                "oi": row.get("PE OI", 0),
+                "iv": row.get("PE IV", 0),
+                "delta": row.get("PE Delta", 0),
+                "gamma": row.get("PE Gamma", 0),
+                "theta": row.get("PE Theta", 0),
+                "vega": row.get("PE Vega", 0)
+            }
             
             option_chain.append({
                 "strike": strike,
-                "call": {
-                    "ltp": round(call_price, 2),
-                    "bid": round(call_price - 2, 2),
-                    "ask": round(call_price + 2, 2),
-                    "volume": np.random.randint(100, 10000),
-                    "oi": np.random.randint(1000, 50000),
-                    "iv": round(call_iv, 4),
-                    "delta": round(call_delta, 4),
-                    "gamma": round(gamma, 4),
-                    "theta": round(-gamma * 10, 4),
-                    "vega": round(gamma * 100, 4)
-                },
-                "put": {
-                    "ltp": round(put_price, 2),
-                    "bid": round(put_price - 2, 2),
-                    "ask": round(put_price + 2, 2),
-                    "volume": np.random.randint(100, 10000),
-                    "oi": np.random.randint(1000, 50000),
-                    "iv": round(put_iv, 4),
-                    "delta": round(put_delta, 4),
-                    "gamma": round(gamma, 4),
-                    "theta": round(-gamma * 10, 4),
-                    "vega": round(gamma * 100, 4)
-                }
+                "call": call_data,
+                "put": put_data
             })
+        
+        # Get expiry date from the first row if available
+        expiry = "2025-08-29"  # Default fallback
+        if not oc_df.empty and "Expiry" in oc_df.columns:
+            expiry = str(oc_df.iloc[0].get("Expiry", expiry))
         
         return {
             "symbol": "NIFTY",
             "spot_price": spot_price,
-            "expiry": "2025-08-29",
+            "expiry": expiry,
             "option_chain": option_chain,
             "timestamp": datetime.now().isoformat()
         }
         
     except Exception as e:
-        print(f"Error fetching option chain: {e}")
+        print(f"Error fetching real option chain: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Fallback to basic mock data only if real API fails
         return {
-            "error": f"Failed to fetch option chain: {str(e)}",
+            "error": f"Failed to fetch real option chain: {str(e)}",
             "symbol": "NIFTY",
             "spot_price": 25150.30,
+            "expiry": "2025-08-29",
             "option_chain": [],
             "timestamp": datetime.now().isoformat()
         }
@@ -337,43 +424,88 @@ async def get_greeks_range():
         # Initialize GRM
         grm = GreeksRangeModel()
         
-        # Get current Nifty price
-        spot_price = 25150.30
+        # Try to get real option chain data from Dhan API
+        dhan = get_dhan_client()
+        oc_df = None
         
-        # Create mock option chain data quickly (no API calls)
-        strikes = [24800, 24850, 24900, 24950, 25000, 25050, 25100, 25150, 25200, 25250, 25300, 25350, 25400, 25450, 25500]
+        try:
+            oc_result = dhan.get_option_chain("NIFTY", "NFO", 0, 21)
+            if isinstance(oc_result, tuple) and len(oc_result) == 2:
+                atm_strike, oc_df = oc_result
+                print(f"ATM Strike from Dhan: {atm_strike}")
+            else:
+                oc_df = oc_result
+        except Exception as api_error:
+            print(f"Dhan API error: {api_error}")
+            oc_df = None
         
-        option_chain_data = []
-        for strike in strikes:
-            # Calculate realistic option data
-            distance = abs(strike - spot_price)
-            is_call_itm = strike < spot_price
-            is_put_itm = strike > spot_price
+        if oc_df is None or (hasattr(oc_df, 'empty') and oc_df.empty):
+            print("No real option chain data available, generating fallback data for GRM")
+            # Generate realistic option chain data for GRM
+            spot_data = dhan.get_ltp_data("NIFTY")
+            spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
             
-            # Base OI and volume based on distance from ATM
-            base_oi = max(10000, 100000 - distance * 100)
-            base_volume = max(1000, 20000 - distance * 50)
+            # Create fallback option chain data in GRM expected format
+            atm_strike = round(spot_price / 50) * 50
+            strikes = [atm_strike + i * 50 for i in range(-10, 11)]
             
-            # Calculate option prices for expected move calculation
-            call_price = max(0, spot_price - strike) + 50 * (0.15 + distance / spot_price * 0.1)
-            put_price = max(0, strike - spot_price) + 50 * (0.15 + distance / spot_price * 0.1)
-            
-            option_chain_data.append({
-                'strike': strike,
-                'call_oi': int(base_oi * (1.2 if is_call_itm else 0.8)),
-                'put_oi': int(base_oi * (1.2 if is_put_itm else 0.8)),
-                'call_volume': int(base_volume * np.random.uniform(0.5, 1.5)),
-                'put_volume': int(base_volume * np.random.uniform(0.5, 1.5)),
-                'call_price': round(call_price, 2),
-                'put_price': round(put_price, 2),
-                'call_iv': 0.15 + distance / spot_price * 0.1,
-                'put_iv': 0.15 + distance / spot_price * 0.1,
-                'call_delta': max(0.05, min(0.95, 0.5 + (spot_price - strike) / (2 * spot_price))),
-                'put_delta': min(-0.05, max(-0.95, -0.5 - (spot_price - strike) / (2 * spot_price))),
-                'gamma': 0.01 * max(0.1, 1 - distance / (0.5 * spot_price)),
-                'vanna': np.random.uniform(0.001, 0.01),
-                'charm': np.random.uniform(-0.001, 0.001)
-            })
+            option_chain_data = []
+            for strike in strikes:
+                distance = abs(strike - spot_price)
+                is_itm_call = strike < spot_price
+                is_itm_put = strike > spot_price
+                
+                # Realistic option pricing
+                call_intrinsic = max(0, spot_price - strike)
+                put_intrinsic = max(0, strike - spot_price)
+                time_value = 50 * (0.15 + distance / spot_price * 0.05)
+                
+                call_price = call_intrinsic + time_value * (0.8 if is_itm_call else 1.2)
+                put_price = put_intrinsic + time_value * (0.8 if is_itm_put else 1.2)
+                
+                # Realistic OI and volume
+                base_oi = max(5000, 80000 - distance * 150)
+                
+                # Greeks calculations
+                call_delta = max(0.05, min(0.95, 0.5 + (spot_price - strike) / (2 * spot_price)))
+                put_delta = call_delta - 1
+                gamma = 0.015 * max(0.1, 1 - distance / (0.8 * spot_price))
+                
+                option_chain_data.append({
+                    'strike': strike,
+                    'call_price': call_price,
+                    'put_price': put_price,
+                    'call_oi': int(base_oi * (1.3 if is_itm_call else 0.9)),
+                    'put_oi': int(base_oi * (1.3 if is_itm_put else 0.9)),
+                    'call_delta': call_delta,
+                    'put_delta': put_delta,
+                    'gamma': gamma,
+                    'call_iv': 0.15 + distance / spot_price * 0.08,
+                    'put_iv': 0.15 + distance / spot_price * 0.08
+                })
+        else:
+            # Convert real Dhan option chain format to GRM expected format
+            option_chain_data = []
+            for _, row in oc_df.iterrows():
+                strike = row.get("Strike Price", 0)
+                
+                option_chain_data.append({
+                    'strike': strike,
+                    'call_price': row.get("CE LTP", 0),
+                    'put_price': row.get("PE LTP", 0),
+                    'call_oi': row.get("CE OI", 0),
+                    'put_oi': row.get("PE OI", 0),
+                    'call_delta': row.get("CE Delta", 0),
+                    'put_delta': row.get("PE Delta", 0),
+                    'gamma': row.get("CE Gamma", row.get("PE Gamma", 0)),  # Use CE gamma or PE gamma
+                    'call_iv': row.get("CE IV", 0),
+                    'put_iv': row.get("PE IV", 0)
+                })
+        
+        # Get current Nifty spot price for GRM calculation  
+        if 'spot_price' not in locals():
+            spot_data = dhan.get_ltp_data("NIFTY")
+            spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
         
         # Convert to DataFrame
         df = pd.DataFrame(option_chain_data)
