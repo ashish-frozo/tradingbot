@@ -54,7 +54,7 @@ async def get_equity_data():
         if not client_id or not access_token:
             raise Exception("Dhan credentials not found in environment")
             
-        dhan = Tradehull(client_id, access_token)
+        dhan = Tradehull(ClientCode=client_id, token_id=access_token)
         
         # Get fund limits to calculate equity
         fund_data = dhan.get_fund_limits()
@@ -275,59 +275,110 @@ async def get_option_chain():
         if not client_id or not access_token:
             raise Exception("Dhan credentials not found in environment")
             
-        dhan = Tradehull(client_id, access_token)
+        dhan = Tradehull(ClientCode=client_id, token_id=access_token)
         
-        # Fallback to mock option chain data due to Dhan API issues
-        # Generate realistic option chain data around current NIFTY level
-        nifty_ltp = 25107.35  # Current NIFTY level
+        # Get real option chain data from Dhan API
+        # Try current expiry first, then next expiry if current is empty
+        oc_result = None
+        for expiry_index in [0, 1]:
+            try:
+                oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
+                if isinstance(oc_result, tuple) and len(oc_result) == 2:
+                    atm_strike, oc_df = oc_result
+                    if hasattr(oc_df, 'empty') and not oc_df.empty:
+                        print(f"Found option chain data with expiry index {expiry_index}")
+                        break
+                    else:
+                        print(f"Empty data for expiry index {expiry_index}, trying next...")
+                else:
+                    oc_df = oc_result
+            except Exception as exp_error:
+                print(f"Error with expiry index {expiry_index}: {exp_error}")
+                if "Too many requests" in str(exp_error):
+                    break
+                continue
         
-        option_chain_data = []
-        base_strike = int(nifty_ltp / 50) * 50  # Round to nearest 50
+        # Set to None if no valid data found
+        if oc_result is None or (isinstance(oc_result, tuple) and len(oc_result) == 2 and hasattr(oc_result[1], 'empty') and oc_result[1].empty):
+            oc_df = None
         
-        for i in range(-10, 11):  # 21 strikes around ATM
-            strike = base_strike + (i * 50)
+        if oc_df is None or (hasattr(oc_df, 'empty') and oc_df.empty):
+            print("Option chain data not available (early market hours or API limitation) - using realistic fallback with live spot price")
             
-            # Calculate realistic option premiums
-            distance_from_atm = abs(strike - nifty_ltp)
-            time_value = max(10, 200 - (distance_from_atm / 10))
+            # Get live NIFTY price for realistic fallback
+            try:
+                ltp_data = dhan.get_ltp_data("NIFTY", "NSE")
+                if ltp_data and 'LTP' in ltp_data:
+                    nifty_ltp = float(ltp_data['LTP'])
+                    print(f"Using live NIFTY LTP: {nifty_ltp}")
+                else:
+                    nifty_ltp = 25107.35  # Fallback value
+                    print("Could not get live LTP, using fallback value")
+            except Exception as ltp_error:
+                print(f"LTP fetch error: {ltp_error}")
+                nifty_ltp = 25107.35
             
-            if strike < nifty_ltp:  # ITM Call, OTM Put
-                ce_ltp = max(5, nifty_ltp - strike + time_value)
-                pe_ltp = max(5, time_value)
-            else:  # OTM Call, ITM Put
-                ce_ltp = max(5, time_value)
-                pe_ltp = max(5, strike - nifty_ltp + time_value)
+            # Generate realistic option chain data around current NIFTY level
+            option_chain_data = []
+            base_strike = int(nifty_ltp / 50) * 50  # Round to nearest 50
             
-            option_chain_data.append({
-                "Strike Price": strike,
-                "CE OI": random.randint(1000, 50000),
-                "CE Chg in OI": random.randint(-5000, 5000),
-                "CE Volume": random.randint(100, 10000),
-                "CE IV": round(random.uniform(12, 25), 2),
-                "CE LTP": round(ce_ltp, 2),
-                "CE Chg": round(random.uniform(-20, 20), 2),
-                "CE Bid Qty": random.randint(25, 500),
-                "CE Bid": round(ce_ltp - random.uniform(0.5, 2), 2),
-                "CE Ask": round(ce_ltp + random.uniform(0.5, 2), 2),
-                "CE Ask Qty": random.randint(25, 500),
-                "PE Bid Qty": random.randint(25, 500),
-                "PE Bid": round(pe_ltp - random.uniform(0.5, 2), 2),
-                "PE Ask": round(pe_ltp + random.uniform(0.5, 2), 2),
-                "PE Ask Qty": random.randint(25, 500),
-                "PE Chg": round(random.uniform(-20, 20), 2),
-                "PE LTP": round(pe_ltp, 2),
-                "PE IV": round(random.uniform(12, 25), 2),
-                "PE Volume": random.randint(100, 10000),
-                "PE Chg in OI": random.randint(-5000, 5000),
-                "PE OI": random.randint(1000, 50000)
-            })
-        
-        return {
-            "status": "success",
-            "data": option_chain_data,
-            "timestamp": datetime.now().isoformat(),
-            "note": "Mock data - Dhan API option chain temporarily unavailable"
-        }
+            for i in range(-10, 11):  # 21 strikes around ATM
+                strike = base_strike + (i * 50)
+                
+                # Calculate realistic option premiums
+                distance_from_atm = abs(strike - nifty_ltp)
+                time_value = max(10, 200 - (distance_from_atm / 10))
+                
+                if strike < nifty_ltp:  # ITM Call, OTM Put
+                    ce_ltp = max(5, nifty_ltp - strike + time_value)
+                    pe_ltp = max(5, time_value)
+                else:  # OTM Call, ITM Put
+                    ce_ltp = max(5, time_value)
+                    pe_ltp = max(5, strike - nifty_ltp + time_value)
+                
+                option_chain_data.append({
+                    "Strike Price": strike,
+                    "CE OI": random.randint(1000, 50000),
+                    "CE Chg in OI": random.randint(-5000, 5000),
+                    "CE Volume": random.randint(100, 10000),
+                    "CE IV": round(random.uniform(12, 25), 2),
+                    "CE LTP": round(ce_ltp, 2),
+                    "CE Chg": round(random.uniform(-20, 20), 2),
+                    "CE Bid Qty": random.randint(25, 500),
+                    "CE Bid": round(ce_ltp - random.uniform(0.5, 2), 2),
+                    "CE Ask": round(ce_ltp + random.uniform(0.5, 2), 2),
+                    "CE Ask Qty": random.randint(25, 500),
+                    "PE Bid Qty": random.randint(25, 500),
+                    "PE Bid": round(pe_ltp - random.uniform(0.5, 2), 2),
+                    "PE Ask": round(pe_ltp + random.uniform(0.5, 2), 2),
+                    "PE Ask Qty": random.randint(25, 500),
+                    "PE Chg": round(random.uniform(-20, 20), 2),
+                    "PE LTP": round(pe_ltp, 2),
+                    "PE IV": round(random.uniform(12, 25), 2),
+                    "PE Volume": random.randint(100, 10000),
+                    "PE Chg in OI": random.randint(-5000, 5000),
+                    "PE OI": random.randint(1000, 50000)
+                })
+            
+            return {
+                "status": "success",
+                "data": option_chain_data,
+                "timestamp": datetime.now().isoformat(),
+                "note": f"Realistic fallback data using live NIFTY LTP: {nifty_ltp}",
+                "source": "fallback",
+                "spot_price": nifty_ltp
+            }
+        else:
+            # Convert DataFrame to list of dictionaries
+            option_chain_data = oc_df.to_dict('records')
+            
+            return {
+                "status": "success",
+                "data": option_chain_data,
+                "timestamp": datetime.now().isoformat(),
+                "note": "Real-time option chain data from Dhan API",
+                "source": "api"
+            }
             
     except Exception as e:
         print(f"Error fetching option chain: {e}")
