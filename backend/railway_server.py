@@ -251,6 +251,81 @@ async def get_market_data():
         "timestamp": datetime.now().isoformat()
     }
 
+@app.get("/api/option-chain")
+async def get_option_chain():
+    """Get option chain data using Dhan API"""
+    try:
+        dhan = get_dhan_client()
+        
+        # Get current Nifty price for ATM calculation
+        spot_price = 25150.30  # In production, get from live market data
+        
+        # Calculate ATM and nearby strikes
+        atm_strike = round(spot_price / 50) * 50
+        strikes = [atm_strike + i * 50 for i in range(-10, 11)]
+        
+        # Mock option chain data structure (replace with real Dhan API call)
+        option_chain = []
+        
+        for strike in strikes:
+            # Calculate theoretical Greeks and prices
+            call_iv = 0.15 + abs(strike - spot_price) / spot_price * 0.1
+            put_iv = 0.15 + abs(strike - spot_price) / spot_price * 0.1
+            
+            call_price = max(spot_price - strike, 0) + 50 * call_iv
+            put_price = max(strike - spot_price, 0) + 50 * put_iv
+            
+            # Mock Greeks calculation
+            call_delta = 0.5 if strike == atm_strike else (0.8 if strike < spot_price else 0.2)
+            put_delta = call_delta - 1
+            gamma = 0.01 * (1 - abs(strike - spot_price) / (2 * spot_price))
+            
+            option_chain.append({
+                "strike": strike,
+                "call": {
+                    "ltp": round(call_price, 2),
+                    "bid": round(call_price - 2, 2),
+                    "ask": round(call_price + 2, 2),
+                    "volume": np.random.randint(100, 10000),
+                    "oi": np.random.randint(1000, 50000),
+                    "iv": round(call_iv, 4),
+                    "delta": round(call_delta, 4),
+                    "gamma": round(gamma, 4),
+                    "theta": round(-gamma * 10, 4),
+                    "vega": round(gamma * 100, 4)
+                },
+                "put": {
+                    "ltp": round(put_price, 2),
+                    "bid": round(put_price - 2, 2),
+                    "ask": round(put_price + 2, 2),
+                    "volume": np.random.randint(100, 10000),
+                    "oi": np.random.randint(1000, 50000),
+                    "iv": round(put_iv, 4),
+                    "delta": round(put_delta, 4),
+                    "gamma": round(gamma, 4),
+                    "theta": round(-gamma * 10, 4),
+                    "vega": round(gamma * 100, 4)
+                }
+            })
+        
+        return {
+            "symbol": "NIFTY",
+            "spot_price": spot_price,
+            "expiry": "2025-08-29",
+            "option_chain": option_chain,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"Error fetching option chain: {e}")
+        return {
+            "error": f"Failed to fetch option chain: {str(e)}",
+            "symbol": "NIFTY",
+            "spot_price": 25150.30,
+            "option_chain": [],
+            "timestamp": datetime.now().isoformat()
+        }
+
 @app.get("/api/greeks-range")
 async def get_greeks_range():
     """Get Greeks-based support/resistance levels using GRM"""

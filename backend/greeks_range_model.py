@@ -6,8 +6,9 @@ Based on option chain Greeks: gamma walls, vanna shifts, charm compression
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional
-from datetime import datetime, time
+import time
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 import logging
 
 class GreeksRangeModel:
