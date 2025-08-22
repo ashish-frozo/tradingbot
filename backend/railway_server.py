@@ -330,76 +330,64 @@ async def get_option_chain():
 async def get_greeks_range():
     """Get Greeks-based support/resistance levels using GRM"""
     try:
-        from greeks_range_model import grm
+        from greeks_range_model import GreeksRangeModel
         import pandas as pd
         import numpy as np
         
-        dhan = get_dhan_client()
+        # Initialize GRM
+        grm = GreeksRangeModel()
         
-        # Get current Nifty price (using market data or positions)
-        # For now, using a representative price - in production, get from live data
+        # Get current Nifty price
         spot_price = 25150.30
         
-        # Get option chain data from Dhan
-        # Note: This is a simplified version - in production, you'd get full option chain
-        # For now, creating sample data structure that would come from Dhan API
+        # Create mock option chain data quickly (no API calls)
+        strikes = [24800, 24850, 24900, 24950, 25000, 25050, 25100, 25150, 25200, 25250, 25300, 25350, 25400, 25450, 25500]
         
-        # Sample option chain data (in production, this would come from dhan.get_option_chain())
-        option_data = []
-        strikes = range(24800, 25500, 50)  # Nifty strikes around current price
-        
+        option_chain_data = []
         for strike in strikes:
-            # Sample Greeks and OI data (in production, get from actual option chain)
-            distance = abs(strike - spot_price) / spot_price
+            # Calculate realistic option data
+            distance = abs(strike - spot_price)
+            is_call_itm = strike < spot_price
+            is_put_itm = strike > spot_price
             
-            # Simulate realistic Greeks based on distance from ATM
-            gamma = max(0.001, 0.01 * np.exp(-distance * 100))
-            vanna = gamma * 0.5 * (1 if strike > spot_price else -1)
-            charm = -gamma * 0.3
+            # Base OI and volume based on distance from ATM
+            base_oi = max(10000, 100000 - distance * 100)
+            base_volume = max(1000, 20000 - distance * 50)
             
-            # Simulate OI based on typical patterns
-            call_oi = max(100, int(5000 * np.exp(-distance * 50)))
-            put_oi = max(100, int(4000 * np.exp(-distance * 40)))
+            # Calculate option prices for expected move calculation
+            call_price = max(0, spot_price - strike) + 50 * (0.15 + distance / spot_price * 0.1)
+            put_price = max(0, strike - spot_price) + 50 * (0.15 + distance / spot_price * 0.1)
             
-            # Simulate option prices
-            call_price = max(1, (spot_price - strike + 50) if strike < spot_price else 50)
-            put_price = max(1, (strike - spot_price + 50) if strike > spot_price else 50)
-            
-            option_data.append({
+            option_chain_data.append({
                 'strike': strike,
-                'call_oi': call_oi,
-                'put_oi': put_oi,
-                'gamma': gamma,
-                'vanna': vanna,
-                'charm': charm,
-                'call_price': call_price,
-                'put_price': put_price
+                'call_oi': int(base_oi * (1.2 if is_call_itm else 0.8)),
+                'put_oi': int(base_oi * (1.2 if is_put_itm else 0.8)),
+                'call_volume': int(base_volume * np.random.uniform(0.5, 1.5)),
+                'put_volume': int(base_volume * np.random.uniform(0.5, 1.5)),
+                'call_price': round(call_price, 2),
+                'put_price': round(put_price, 2),
+                'call_iv': 0.15 + distance / spot_price * 0.1,
+                'put_iv': 0.15 + distance / spot_price * 0.1,
+                'call_delta': max(0.05, min(0.95, 0.5 + (spot_price - strike) / (2 * spot_price))),
+                'put_delta': min(-0.05, max(-0.95, -0.5 - (spot_price - strike) / (2 * spot_price))),
+                'gamma': 0.01 * max(0.1, 1 - distance / (0.5 * spot_price)),
+                'vanna': np.random.uniform(0.001, 0.01),
+                'charm': np.random.uniform(-0.001, 0.001)
             })
         
-        option_chain = pd.DataFrame(option_data)
-        
-        # IV data (front month vs next week)
-        front_iv = 0.15  # 15% IV for front month
-        back_iv = 0.12   # 12% IV for back month
-        
-        # Calculate current time to market close
-        now = datetime.now()
-        market_close = datetime.combine(now.date(), time(15, 30))  # 3:30 PM IST
-        if now > market_close:
-            hours_to_close = 0.5  # Minimal time if after hours
-        else:
-            hours_to_close = (market_close - now).total_seconds() / 3600
+        # Convert to DataFrame
+        df = pd.DataFrame(option_chain_data)
         
         # Calculate GRM levels
-        grm_result = grm.greeks_range_model(
-            option_chain=option_chain,
+        result = grm.greeks_range_model(
+            option_chain=df, 
             spot_price=spot_price,
-            front_iv=front_iv,
-            back_iv=back_iv,
-            hours_to_close=max(0.5, hours_to_close)
+            front_iv=0.15,
+            back_iv=0.18,
+            hours_to_close=6.5
         )
         
-        return grm_result
+        return result
         
     except Exception as e:
         print(f"Error calculating Greeks range: {e}")
