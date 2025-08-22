@@ -269,8 +269,8 @@ async def get_option_chain():
         else:
             oc_df = oc_result
         
-        if oc_df is None or oc_df.empty:
-            print("Market closed or no option chain data - generating realistic fallback data")
+        if oc_df is None or (hasattr(oc_df, 'empty') and oc_df.empty):
+            print("Option chain data not available (early market hours or API limitation) - using realistic fallback with live spot price")
             # Generate realistic option chain data using current spot price
             spot_data = dhan.get_ltp_data("NIFTY")
             spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
@@ -338,7 +338,7 @@ async def get_option_chain():
                 "expiry": "2025-08-28",
                 "option_chain": option_chain,
                 "timestamp": datetime.now().isoformat(),
-                "data_source": "fallback_realistic"
+                "data_source": "fallback_with_live_spot"
             }
         
         # Get current Nifty spot price
