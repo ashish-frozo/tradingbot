@@ -251,6 +251,108 @@ async def get_market_data():
         "timestamp": datetime.now().isoformat()
     }
 
+@app.get("/api/greeks-range")
+async def get_greeks_range():
+    """Get Greeks-based support/resistance levels using GRM"""
+    try:
+        from greeks_range_model import grm
+        import pandas as pd
+        import numpy as np
+        
+        dhan = get_dhan_client()
+        
+        # Get current Nifty price (using market data or positions)
+        # For now, using a representative price - in production, get from live data
+        spot_price = 25150.30
+        
+        # Get option chain data from Dhan
+        # Note: This is a simplified version - in production, you'd get full option chain
+        # For now, creating sample data structure that would come from Dhan API
+        
+        # Sample option chain data (in production, this would come from dhan.get_option_chain())
+        option_data = []
+        strikes = range(24800, 25500, 50)  # Nifty strikes around current price
+        
+        for strike in strikes:
+            # Sample Greeks and OI data (in production, get from actual option chain)
+            distance = abs(strike - spot_price) / spot_price
+            
+            # Simulate realistic Greeks based on distance from ATM
+            gamma = max(0.001, 0.01 * np.exp(-distance * 100))
+            vanna = gamma * 0.5 * (1 if strike > spot_price else -1)
+            charm = -gamma * 0.3
+            
+            # Simulate OI based on typical patterns
+            call_oi = max(100, int(5000 * np.exp(-distance * 50)))
+            put_oi = max(100, int(4000 * np.exp(-distance * 40)))
+            
+            # Simulate option prices
+            call_price = max(1, (spot_price - strike + 50) if strike < spot_price else 50)
+            put_price = max(1, (strike - spot_price + 50) if strike > spot_price else 50)
+            
+            option_data.append({
+                'strike': strike,
+                'call_oi': call_oi,
+                'put_oi': put_oi,
+                'gamma': gamma,
+                'vanna': vanna,
+                'charm': charm,
+                'call_price': call_price,
+                'put_price': put_price
+            })
+        
+        option_chain = pd.DataFrame(option_data)
+        
+        # IV data (front month vs next week)
+        front_iv = 0.15  # 15% IV for front month
+        back_iv = 0.12   # 12% IV for back month
+        
+        # Calculate current time to market close
+        now = datetime.now()
+        market_close = datetime.combine(now.date(), time(15, 30))  # 3:30 PM IST
+        if now > market_close:
+            hours_to_close = 0.5  # Minimal time if after hours
+        else:
+            hours_to_close = (market_close - now).total_seconds() / 3600
+        
+        # Calculate GRM levels
+        grm_result = grm.greeks_range_model(
+            option_chain=option_chain,
+            spot_price=spot_price,
+            front_iv=front_iv,
+            back_iv=back_iv,
+            hours_to_close=max(0.5, hours_to_close)
+        )
+        
+        return grm_result
+        
+    except Exception as e:
+        print(f"Error calculating Greeks range: {e}")
+        # Fallback data
+        return {
+            "center": 25150,
+            "support": 25050,
+            "resistance": 25250,
+            "support2": None,
+            "resistance2": None,
+            "zero_gamma": 25140,
+            "gamma_wall_low": 25000,
+            "gamma_wall_high": 25300,
+            "gex_regime": "neutral",
+            "expected_move": 100,
+            "charm_modifier": 1.0,
+            "vanna_shift": 0,
+            "timestamp": datetime.now().isoformat(),
+            "trading_strategy": {
+                "type": "Neutral",
+                "description": "Mixed signals, trade with caution",
+                "strategy": "Wait for clearer regime signals",
+                "key_level": 25150,
+                "bias": "neutral"
+            },
+            "error": str(e)
+        }
+
 # Static file serving with raw file reading to ensure correct MIME types
 @app.get("/{file_path:path}")
 async def serve_files(file_path: str, request: Request):

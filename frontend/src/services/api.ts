@@ -91,6 +91,10 @@ class ApiService {
   async getRiskMetrics(): Promise<RiskMetrics> {
     return this.request('/api/risk-metrics');
   }
+
+  async getGreeksRange(): Promise<any> {
+    return this.request('/api/greeks-range');
+  }
 }
 
 export const apiService = new ApiService();

@@ -16,6 +16,7 @@ import MarketSentimentAnalyzer from './MarketSentimentAnalyzer';
 import { AlertsPanel } from './AlertsPanel';
 import { LatencyChart } from './LatencyChart';
 import { AlphaDecayChart } from './AlphaDecayChart';
+import GreeksRangePanel from './GreeksRangePanel';
 import { usePositions, useRiskMetrics, useEquityData } from '../hooks/useApiData';
 import { useAppStore } from '../stores/useAppStore';
 import { formatCurrency, formatPercent, getPnlColor } from '../lib/utils';
@@ -308,7 +309,10 @@ export const Dashboard: React.FC = () => {
             </div>
           ) : selectedView === 'analysis' ? (
             <div className="space-y-6">
-              <OptionAnalysis />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <GreeksRangePanel />
+                <OptionAnalysis />
+              </div>
             </div>
           ) : selectedView === 'selector' ? (
             <div className="space-y-6">
