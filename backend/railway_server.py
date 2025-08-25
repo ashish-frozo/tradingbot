@@ -645,7 +645,7 @@ async def get_greeks_range():
 
 # Kill switch management endpoints
 @app.get("/api/kill-switch/status")
-async def get_kill_switch_status():
+async def kill_switch_status_endpoint():
     """Get current kill switch status"""
     if not KILL_SWITCH_AVAILABLE:
         return {"error": "Kill switch not available", "status": "unknown"}
@@ -653,7 +653,7 @@ async def get_kill_switch_status():
     return get_kill_switch_status()
 
 @app.post("/api/kill-switch/activate")
-async def activate_kill_switch():
+async def activate_kill_switch_endpoint():
     """Manually activate kill switch"""
     if not KILL_SWITCH_AVAILABLE:
         raise HTTPException(status_code=503, detail="Kill switch not available")
@@ -666,7 +666,7 @@ async def activate_kill_switch():
     }
 
 @app.post("/api/kill-switch/deactivate")
-async def deactivate_kill_switch():
+async def deactivate_kill_switch_endpoint():
     """Manually deactivate kill switch"""
     if not KILL_SWITCH_AVAILABLE:
         raise HTTPException(status_code=503, detail="Kill switch not available")
@@ -679,7 +679,7 @@ async def deactivate_kill_switch():
     }
 
 @app.post("/api/kill-switch/emergency-stop")
-async def emergency_stop():
+async def emergency_stop_endpoint():
     """Emergency stop all data fetching"""
     if not KILL_SWITCH_AVAILABLE:
         raise HTTPException(status_code=503, detail="Kill switch not available")
@@ -692,7 +692,7 @@ async def emergency_stop():
     }
 
 @app.post("/api/kill-switch/emergency-restore")
-async def emergency_restore():
+async def emergency_restore_endpoint():
     """Restore from emergency stop"""
     if not KILL_SWITCH_AVAILABLE:
         raise HTTPException(status_code=503, detail="Kill switch not available")
