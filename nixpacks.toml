@@ -13,4 +13,4 @@ cmds = [
 ]
 
 [start]
-cmd = 'python backend/simple_server.py'
+cmd = 'python backend/railway_server.py'
