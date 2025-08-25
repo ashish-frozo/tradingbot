@@ -373,27 +373,50 @@ async def get_option_chain():
             expiry_list = dhan.get_expiry_list('NIFTY', 'NFO')
             print(f"📅 Available expiries: {expiry_list}")
             
-            # Choose the most likely expiry to have data (typically next expiry)
-            best_expiry_index = 1 if len(expiry_list) > 1 else 0
-            expiry_date = expiry_list[best_expiry_index] if expiry_list else "unknown"
+            # Smart expiry selection - try the most likely active expiry first
+            # For current market hours, try nearest expiry (index 0) first
+            expiry_indices_to_try = [0, 1] if len(expiry_list) > 1 else [0]
             
-            print(f"📡 Making SINGLE API call for expiry {expiry_date} (index {best_expiry_index})...")
-            print("ℹ️ Following DhanHQ guidelines: Using REST API for snapshot data only")
+            for expiry_index in expiry_indices_to_try:
+                expiry_date = expiry_list[expiry_index] if expiry_index < len(expiry_list) else "unknown"
+                
+                print(f"📡 Trying expiry {expiry_date} (index {expiry_index})...")
+                print("ℹ️ Following DhanHQ guidelines: Using REST API for snapshot data only")
+                
+                try:
+                    # Make API call with respectful delay
+                    time.sleep(2)  # Respectful delay
+                    oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
+                    
+                    if isinstance(oc_result, tuple) and len(oc_result) == 2:
+                        atm_strike, oc_df = oc_result
+                        if hasattr(oc_df, 'empty') and not oc_df.empty:
+                            print(f"🎉 SUCCESS! Got REAL option chain data from expiry {expiry_date}")
+                            print(f"📊 ATM: {atm_strike}, Rows: {len(oc_df)}")
+                            real_data_source = "api"
+                            break  # Success! Use this data
+                        else:
+                            print(f"⚠️ Expiry {expiry_date} returned empty data, trying next...")
+                    else:
+                        print(f"⚠️ Unexpected API response format for expiry {expiry_date}")
+                        
+                except Exception as api_error:
+                    error_msg = str(api_error)
+                    print(f"❌ Error with expiry {expiry_date}: {error_msg}")
+                    
+                    if "Invalid Expiry Date" in error_msg or "811" in error_msg:
+                        print(f"📅 Expiry {expiry_date} is invalid, trying next expiry...")
+                        continue  # Try next expiry
+                    elif "Too many requests" in error_msg:
+                        print("🚫 Rate limited - stopping further attempts")
+                        break  # Stop trying to avoid more rate limiting
+                    else:
+                        print(f"🔄 Unknown error, trying next expiry...")
+                        continue
             
-            # Make only ONE API call to avoid rate limiting
-            time.sleep(2)  # Respectful delay
-            oc_result = dhan.get_option_chain("NIFTY", "NFO", best_expiry_index, 21)
-            
-            if isinstance(oc_result, tuple) and len(oc_result) == 2:
-                atm_strike, oc_df = oc_result
-                if hasattr(oc_df, 'empty') and not oc_df.empty:
-                    print(f"🎉 SUCCESS! Got REAL option chain data from expiry {expiry_date}")
-                    print(f"📊 ATM: {atm_strike}, Rows: {len(oc_df)}")
-                    real_data_source = "api"
-                else:
-                    print(f"⚠️ Expiry {expiry_date} returned empty data")
-            else:
-                print(f"⚠️ Unexpected API response format")
+            # If we still don't have data after trying all expiries
+            if oc_df is None or (hasattr(oc_df, 'empty') and oc_df.empty):
+                print("⚠️ No valid expiry found with real data")
             
         except Exception as e:
             print(f"❌ Error getting option chain: {e}")
