@@ -990,4 +990,6 @@ async def get_sentiment_legacy():
     return await get_current_sentiment()
 
 if __name__ == "__main__":
-    uvicorn.run("railway_server:app", host="0.0.0.0", port=8001, reload=True)
+    import os
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("railway_server:app", host="0.0.0.0", port=port, reload=False)
