@@ -13,6 +13,23 @@ import json
 import numpy as np
 import os
 import random
+import time
+
+# Import kill switch functionality
+try:
+    from market_kill_switch import (
+        should_allow_data_fetching,
+        get_kill_switch_status,
+        activate_manual_kill_switch,
+        deactivate_manual_kill_switch,
+        activate_emergency_stop,
+        deactivate_emergency_stop
+    )
+    KILL_SWITCH_AVAILABLE = True
+    print("✅ Kill switch module imported successfully")
+except ImportError as e:
+    print(f"⚠️ Kill switch module not available: {e}")
+    KILL_SWITCH_AVAILABLE = False
 
 app = FastAPI(title="Nifty Trade Setup API", version="1.0.0")
 
@@ -257,29 +274,64 @@ async def get_market_data():
 @app.get("/api/option-chain")
 async def get_option_chain():
     """Get real option chain data using Dhan API"""
+    # Check kill switch first
+    if KILL_SWITCH_AVAILABLE:
+        allowed, reason = should_allow_data_fetching()
+        if not allowed:
+            print(f"🚫 Kill switch active: {reason}")
+            return {
+                "status": "blocked",
+                "message": reason,
+                "reason": "outside_market_hours" if "market hours" in reason else "manual_kill_switch" if "Manual" in reason else "emergency_stop" if "Emergency" in reason else "unknown",
+                "current_time_ist": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
+                "data": [],
+                "timestamp": datetime.now().isoformat(),
+                "note": "Data fetching blocked by kill switch - check market hours or manual override"
+            }
+        else:
+            print(f"✅ Kill switch check passed: {reason}")
+    
     try:
         dhan = get_dhan_client()
         
-        # Get real option chain data from Dhan API
-        # Try current expiry first, then next expiry if current is empty
+        # IMPROVED REST API APPROACH: Better rate limiting based on DhanHQ guidelines
+        print("🔄 Using REST API with improved rate limiting...")
+        
+        oc_df = None
         oc_result = None
-        for expiry_index in [0, 1]:
-            try:
-                oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
-                if isinstance(oc_result, tuple) and len(oc_result) == 2:
-                    atm_strike, oc_df = oc_result
-                    if hasattr(oc_df, 'empty') and not oc_df.empty:
-                        print(f"Found option chain data with expiry index {expiry_index}")
-                        break
-                    else:
-                        print(f"Empty data for expiry index {expiry_index}, trying next...")
+        atm_strike = None
+        
+        try:
+            # Single API call approach - get expiry list only once
+            expiry_list = dhan.get_expiry_list('NIFTY', 'NFO')
+            print(f"📅 Available expiries: {expiry_list}")
+            
+            # Choose the most likely expiry to have data (typically next expiry)
+            best_expiry_index = 1 if len(expiry_list) > 1 else 0
+            expiry_date = expiry_list[best_expiry_index] if expiry_list else "unknown"
+            
+            print(f"📡 Making SINGLE API call for expiry {expiry_date} (index {best_expiry_index})...")
+            print("ℹ️ Following DhanHQ guidelines: Using REST API for snapshot data only")
+            
+            # Make only ONE API call to avoid rate limiting
+            time.sleep(2)  # Respectful delay
+            oc_result = dhan.get_option_chain("NIFTY", "NFO", best_expiry_index, 21)
+            
+            if isinstance(oc_result, tuple) and len(oc_result) == 2:
+                atm_strike, oc_df = oc_result
+                if hasattr(oc_df, 'empty') and not oc_df.empty:
+                    print(f"🎉 SUCCESS! Got REAL option chain data from expiry {expiry_date}")
+                    print(f"📊 ATM: {atm_strike}, Rows: {len(oc_df)}")
                 else:
-                    oc_df = oc_result
-            except Exception as exp_error:
-                print(f"Error with expiry index {expiry_index}: {exp_error}")
-                if "Too many requests" in str(exp_error):
-                    break
-                continue
+                    print(f"⚠️ Expiry {expiry_date} returned empty data")
+            else:
+                print(f"⚠️ Unexpected API response format")
+            
+        except Exception as e:
+            print(f"❌ Error getting option chain: {e}")
+            if "Too many requests" in str(e):
+                print("🚫 Rate limited - This is why DhanHQ recommends WebSocket for real-time data")
+                print("💡 Consider implementing WebSocket for continuous updates")
         
         # Set to None if no valid data found
         if oc_result is None or (isinstance(oc_result, tuple) and len(oc_result) == 2 and hasattr(oc_result[1], 'empty') and oc_result[1].empty):
@@ -582,6 +634,67 @@ async def get_greeks_range():
             },
             "error": str(e)
         }
+
+# Kill switch management endpoints
+@app.get("/api/kill-switch/status")
+async def get_kill_switch_status():
+    """Get current kill switch status"""
+    if not KILL_SWITCH_AVAILABLE:
+        return {"error": "Kill switch not available", "status": "unknown"}
+    
+    return get_kill_switch_status()
+
+@app.post("/api/kill-switch/activate")
+async def activate_kill_switch():
+    """Manually activate kill switch"""
+    if not KILL_SWITCH_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Kill switch not available")
+    
+    activate_manual_kill_switch()
+    return {
+        "status": "success",
+        "message": "🔴 Manual kill switch ACTIVATED - All data fetching stopped",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/kill-switch/deactivate")
+async def deactivate_kill_switch():
+    """Manually deactivate kill switch"""
+    if not KILL_SWITCH_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Kill switch not available")
+    
+    deactivate_manual_kill_switch()
+    return {
+        "status": "success",
+        "message": "🟢 Manual kill switch DEACTIVATED - Data fetching restored (subject to market hours)",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/kill-switch/emergency-stop")
+async def emergency_stop():
+    """Emergency stop all data fetching"""
+    if not KILL_SWITCH_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Kill switch not available")
+    
+    activate_emergency_stop()
+    return {
+        "status": "success",
+        "message": "🚨 EMERGENCY STOP ACTIVATED - All systems halted",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/kill-switch/emergency-restore")
+async def emergency_restore():
+    """Restore from emergency stop"""
+    if not KILL_SWITCH_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Kill switch not available")
+    
+    deactivate_emergency_stop()
+    return {
+        "status": "success",
+        "message": "🟢 Emergency stop DEACTIVATED - Systems restored",
+        "timestamp": datetime.now().isoformat()
+    }
 
 # Static file serving with raw file reading to ensure correct MIME types
 @app.get("/{file_path:path}")
