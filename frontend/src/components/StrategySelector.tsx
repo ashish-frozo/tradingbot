@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import { Button } from './ui/button';
 import { getApiUrl } from '../lib/config';
 
 interface MarketData {
@@ -89,6 +90,8 @@ export const StrategySelector: React.FC = () => {
   const [selectedStrategy, setSelectedStrategy] = useState<string>('NO-TRADE');
   const [isActive, setIsActive] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<string>('');
+  const [deploymentStatus, setDeploymentStatus] = useState<string>('');
+  const [isDeploying, setIsDeploying] = useState(false);
 
   const RISK_BUDGET = 10000; // ₹10,000 daily risk budget
   const LOT_SIZE = 50; // NIFTY lot size
@@ -105,6 +108,55 @@ export const StrategySelector: React.FC = () => {
       Math.abs(o.strike - target) < Math.abs(best - target) ? o.strike : best, 
       optionChain[0]?.strike || target
     );
+
+  // Strategy deployment functions
+  const deployStrategy = async (immediate: boolean = false) => {
+    if (!recommendation) {
+      console.error('❌ DEPLOY: No recommendation to deploy');
+      return;
+    }
+
+    setIsDeploying(true);
+    setDeploymentStatus('Deploying strategy...');
+
+    try {
+      const endpoint = immediate ? '/api/strategy/deploy' : '/api/strategy/schedule-deployment';
+      const payload = immediate ? recommendation : {
+        ...recommendation,
+        deployment_time: "09:45"
+      };
+
+      console.log('🚀 DEPLOY DEBUG: Sending strategy deployment request:', payload);
+      
+      const response = await fetch(`${getApiUrl()}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ DEPLOY DEBUG: Strategy deployment successful:', result);
+        
+        if (immediate) {
+          setDeploymentStatus(`✅ Strategy deployed! ${result.orders_placed} orders placed.`);
+        } else {
+          setDeploymentStatus(`⏰ Strategy scheduled for 09:45. Deployment in ${Math.floor(result.seconds_until_deployment/60)} minutes.`);
+        }
+      } else {
+        const error = await response.text();
+        console.error('❌ DEPLOY DEBUG: Deployment failed:', error);
+        setDeploymentStatus(`❌ Deployment failed: ${error}`);
+      }
+    } catch (error) {
+      console.error('❌ DEPLOY DEBUG: Deployment error:', error);
+      setDeploymentStatus(`❌ Deployment error: ${error}`);
+    } finally {
+      setIsDeploying(false);
+    }
+  };
 
   // Separate effect for time/countdown
   useEffect(() => {
@@ -698,7 +750,44 @@ export const StrategySelector: React.FC = () => {
                 <div className="font-medium">Risk: {recommendation.risk.max_loss_R}R</div>
                 <div className="text-sm text-gray-600">
                   Max Loss: ₹{(RISK_BUDGET * recommendation.risk.max_loss_R).toLocaleString()}
+                  {recommendation.suggestedLots && (
+                    <>
+                      <br />
+                      Position: {recommendation.suggestedLots} lots (₹{recommendation.maxRisk?.toLocaleString()} max risk)
+                    </>
+                  )}
                 </div>
+              </div>
+
+              {/* Deployment Controls */}
+              <div className="border-t pt-4 space-y-3">
+                <h4 className="font-medium">Strategy Deployment:</h4>
+                
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button 
+                    onClick={() => deployStrategy(true)}
+                    disabled={isDeploying}
+                    className="flex-1"
+                    variant="default"
+                  >
+                    {isDeploying ? '🔄 Deploying...' : '🚀 Deploy Now'}
+                  </Button>
+                  
+                  <Button 
+                    onClick={() => deployStrategy(false)}
+                    disabled={isDeploying}
+                    className="flex-1"
+                    variant="outline"
+                  >
+                    ⏰ Schedule for 09:45
+                  </Button>
+                </div>
+
+                {deploymentStatus && (
+                  <div className="text-sm p-2 bg-gray-50 rounded">
+                    {deploymentStatus}
+                  </div>
+                )}
               </div>
             </div>
           ) : (
