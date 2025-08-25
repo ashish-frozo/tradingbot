@@ -492,38 +492,46 @@ async def get_greeks_range():
         # Initialize GRM
         grm = GreeksRangeModel()
         
-        # Try to get real option chain data from Dhan API
+        # Try to get real option chain data from Dhan API using single call approach
         dhan = get_dhan_client()
         oc_df = None
+        atm_strike = None
         
         try:
-            # Try current expiry first (0), then next expiry (1) if current is empty
-            oc_result = None
-            for expiry_index in [0, 1]:
-                try:
-                    oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
-                    if isinstance(oc_result, tuple) and len(oc_result) == 2:
-                        atm_strike, oc_df = oc_result
-                        if hasattr(oc_df, 'empty') and not oc_df.empty:
-                            print(f"Found option chain data with expiry index {expiry_index}, ATM: {atm_strike}")
-                            break
-                        else:
-                            print(f"Empty data for expiry index {expiry_index}, trying next...")
-                    else:
-                        oc_df = oc_result
-                except Exception as exp_error:
-                    print(f"Error with expiry index {expiry_index}: {exp_error}")
-                    if "Too many requests" in str(exp_error):
-                        print("Rate limited - using fallback data")
-                        break
-                    continue
+            print("🔄 GRM: Using improved single API call approach...")
+            
+            # Single API call approach - get expiry list only once
+            expiry_list = dhan.get_expiry_list('NIFTY', 'NFO')
+            print(f"📅 GRM: Available expiries: {expiry_list}")
+            
+            # Choose the most likely expiry to have data (typically next expiry)
+            best_expiry_index = 1 if len(expiry_list) > 1 else 0
+            expiry_date = expiry_list[best_expiry_index] if expiry_list else "unknown"
+            
+            print(f"📡 GRM: Making SINGLE API call for expiry {expiry_date} (index {best_expiry_index})...")
+            
+            # Make only ONE API call to avoid rate limiting
+            time.sleep(1)  # Respectful delay for GRM
+            oc_result = dhan.get_option_chain("NIFTY", "NFO", best_expiry_index, 21)
+            
+            if isinstance(oc_result, tuple) and len(oc_result) == 2:
+                atm_strike, oc_df = oc_result
+                if hasattr(oc_df, 'empty') and not oc_df.empty:
+                    print(f"🎉 GRM: Got REAL option chain data from expiry {expiry_date}")
+                    print(f"📊 GRM: ATM: {atm_strike}, Rows: {len(oc_df)}")
+                else:
+                    print(f"⚠️ GRM: Expiry {expiry_date} returned empty data")
+            else:
+                print(f"⚠️ GRM: Unexpected API response format")
             
             # If we still don't have data, set to None to trigger fallback
             if oc_result is None or (isinstance(oc_result, tuple) and len(oc_result) == 2 and hasattr(oc_result[1], 'empty') and oc_result[1].empty):
                 oc_df = None
                 
         except Exception as api_error:
-            print(f"Dhan API error: {api_error}")
+            print(f"❌ GRM: Error getting option chain: {api_error}")
+            if "Too many requests" in str(api_error):
+                print("🚫 GRM: Rate limited - This is why DhanHQ recommends WebSocket for real-time data")
             oc_df = None
         
         if oc_df is None or (hasattr(oc_df, 'empty') and oc_df.empty):
