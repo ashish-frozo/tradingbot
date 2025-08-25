@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { getApiUrl } from '../lib/config';
 
 interface KillSwitchStatus {
   data_fetching_allowed: boolean;
@@ -24,7 +25,8 @@ export const KillSwitchPanel: React.FC = () => {
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8001'}/api/kill-switch/status`);
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/kill-switch/status`);
       if (response.ok) {
         const data = await response.json();
         setStatus(data);
@@ -42,7 +44,8 @@ export const KillSwitchPanel: React.FC = () => {
   const handleAction = async (action: 'activate' | 'deactivate' | 'emergency-stop' | 'emergency-restore') => {
     setActionLoading(action);
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8001'}/api/kill-switch/${action}`, {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/kill-switch/${action}`, {
         method: 'POST',
       });
       

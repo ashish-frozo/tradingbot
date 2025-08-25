@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { formatCurrency } from '../lib/utils';
+import { getApiUrl } from '../lib/config';
 
 interface OptionData {
   ltp: number;
@@ -47,7 +48,7 @@ export const OptionChain: React.FC = () => {
 
   const fetchOptionChain = async () => {
     try {
-      const response = await fetch('http://localhost:8001/api/option-chain');
+      const response = await fetch(`${getApiUrl()}/api/option-chain`);
       const rawData = await response.json();
       
       // Handle different response statuses
