@@ -534,15 +534,19 @@ async def get_greeks_range():
             expiry_list = dhan.get_expiry_list('NIFTY', 'INDEX')
             print(f"📅 GRM DEBUG: Available expiries: {expiry_list}")
             
-            # Choose the most likely expiry to have data (typically next expiry)
-            best_expiry_index = 1 if len(expiry_list) > 1 else 0
-            expiry_date = expiry_list[best_expiry_index] if expiry_list else "unknown"
+            # Use FRONT expiry (index 0) for GRM calculations - nearest weekly for intraday range
+            front_expiry_index = 0
+            back_expiry_index = 1 if len(expiry_list) > 1 else 0
             
-            print(f"📡 GRM DEBUG: Making SINGLE API call for expiry {expiry_date} (index {best_expiry_index})...")
+            front_expiry_date = expiry_list[front_expiry_index] if expiry_list else "unknown"
+            back_expiry_date = expiry_list[back_expiry_index] if len(expiry_list) > 1 else front_expiry_date
             
-            # Make only ONE API call to avoid rate limiting
+            print(f"📡 GRM DEBUG: Using FRONT expiry {front_expiry_date} (index {front_expiry_index}) for GRM calculation")
+            print(f"📡 GRM DEBUG: Using BACK expiry {back_expiry_date} (index {back_expiry_index}) for term structure")
+            
+            # Get FRONT expiry data (main data for GRM)
             time.sleep(1)  # Respectful delay for GRM
-            oc_result = dhan.get_option_chain("NIFTY", "INDEX", best_expiry_index, 21)
+            oc_result = dhan.get_option_chain("NIFTY", "INDEX", front_expiry_index, 21)
             print(f"🔍 GRM DEBUG: API result type: {type(oc_result)}, length: {len(oc_result) if hasattr(oc_result, '__len__') else 'N/A'}")
             
             # Get spot price for debugging
@@ -557,22 +561,46 @@ async def get_greeks_range():
                 print(f"📋 GRM DEBUG: DataFrame columns: {list(oc_df.columns) if hasattr(oc_df, 'columns') else 'No columns'}")
                 
                 if hasattr(oc_df, 'empty') and not oc_df.empty:
-                    print(f"🎉 GRM DEBUG: Got REAL option chain data from expiry {expiry_date}")
+                    print(f"🎉 GRM DEBUG: Got REAL option chain data from front expiry {front_expiry_date}")
                     print(f"📊 GRM DEBUG: ATM: {atm_strike}, Rows: {len(oc_df)}")
+                    
+                    # Calculate ATM IVs from actual data
+                    atm_idx = (oc_df['Strike Price'] - spot_price).abs().idxmin()
+                    atm_row = oc_df.loc[atm_idx]
+                    
+                    front_iv_ce = float(atm_row.get('CE IV', 15)) / 100.0  # Convert from percentage
+                    front_iv_pe = float(atm_row.get('PE IV', 15)) / 100.0
+                    front_iv_atm = (front_iv_ce + front_iv_pe) / 2.0
+                    
+                    print(f"📊 GRM DEBUG: ATM Strike {atm_row['Strike Price']}: CE IV={front_iv_ce:.4f}, PE IV={front_iv_pe:.4f}, ATM IV={front_iv_atm:.4f}")
+                    
+                    # Calculate Expected Move from front straddle
+                    ce_bid = float(atm_row.get('CE Bid', 0))
+                    ce_ask = float(atm_row.get('CE Ask', 0)) 
+                    pe_bid = float(atm_row.get('PE Bid', 0))
+                    pe_ask = float(atm_row.get('PE Ask', 0))
+                    
+                    ce_mid = (ce_bid + ce_ask) / 2.0 if ce_ask > 0 else float(atm_row.get('CE LTP', 0))
+                    pe_mid = (pe_bid + pe_ask) / 2.0 if pe_ask > 0 else float(atm_row.get('PE LTP', 0))
+                    
+                    straddle_price = ce_mid + pe_mid
+                    expected_move_pct = straddle_price / spot_price
+                    
+                    print(f"💰 GRM DEBUG: ATM Straddle: CE={ce_mid:.2f} + PE={pe_mid:.2f} = {straddle_price:.2f}")
+                    print(f"📊 GRM DEBUG: Expected Move: {expected_move_pct:.4f} ({expected_move_pct*100:.2f}%) = {straddle_price:.2f} points")
                     
                     # Show sample data for debugging
                     if len(oc_df) > 0:
                         print(f"📋 GRM DEBUG: First row data:")
                         print(f"   Strike Price: {oc_df.iloc[0].get('Strike Price', 'MISSING')}")
-                        print(f"   CE LTP: {oc_df.iloc[0].get('CE LTP', 'MISSING')}")
-                        print(f"   PE LTP: {oc_df.iloc[0].get('PE LTP', 'MISSING')}")
+                        print(f"   CE Gamma: {oc_df.iloc[0].get('CE Gamma', 'MISSING')}")
+                        print(f"   PE Gamma: {oc_df.iloc[0].get('PE Gamma', 'MISSING')}")
                         print(f"   CE OI: {oc_df.iloc[0].get('CE OI', 'MISSING')}")
                         print(f"   PE OI: {oc_df.iloc[0].get('PE OI', 'MISSING')}")
-                        print(f"   CE Delta: {oc_df.iloc[0].get('CE Delta', 'MISSING')}")
-                        print(f"   PE Delta: {oc_df.iloc[0].get('PE Delta', 'MISSING')}")
-                        print(f"   CE Gamma: {oc_df.iloc[0].get('CE Gamma', 'MISSING')}")
                 else:
-                    print(f"⚠️ GRM DEBUG: Expiry {expiry_date} returned empty data")
+                    print(f"⚠️ GRM DEBUG: Front expiry {front_expiry_date} returned empty data")
+                    front_iv_atm = 0.15  # Fallback
+                    expected_move_pct = 0.008  # Fallback
             else:
                 print(f"⚠️ GRM DEBUG: Unexpected API response format - got {type(oc_result)}")
                 if hasattr(oc_result, '__dict__'):
@@ -653,25 +681,36 @@ async def get_greeks_range():
             for idx, (_, row) in enumerate(oc_df.iterrows()):
                 strike = row.get("Strike Price", 0)
                 
+                # Get both CE and PE gamma values (critical fix!)
+                ce_gamma = float(row.get("CE Gamma", 0))
+                pe_gamma = float(row.get("PE Gamma", 0))
+                call_oi = float(row.get("CE OI", 0))
+                put_oi = float(row.get("PE OI", 0))
+                
                 data_point = {
                     'strike': strike,
                     'call_price': row.get("CE LTP", 0),
                     'put_price': row.get("PE LTP", 0),
-                    'call_oi': row.get("CE OI", 0),
-                    'put_oi': row.get("PE OI", 0),
+                    'call_oi': call_oi,
+                    'put_oi': put_oi,
                     'call_delta': row.get("CE Delta", 0),
                     'put_delta': row.get("PE Delta", 0),
-                    'gamma': row.get("CE Gamma", row.get("PE Gamma", 0)),  # Use CE gamma or PE gamma
+                    'call_gamma': ce_gamma,  # Separate CE gamma
+                    'put_gamma': pe_gamma,   # Separate PE gamma  
+                    'gamma': ce_gamma,       # Keep for compatibility, but use separate values in GEX
                     'call_iv': row.get("CE IV", 0),
                     'put_iv': row.get("PE IV", 0)
                 }
                 
                 if idx == 0:  # Show first data point for debugging
-                    print(f"📋 GRM DEBUG: Sample real data point: {data_point}")
+                    print(f"📋 GRM DEBUG: Sample real data point:")
+                    print(f"   Strike: {strike}, Call OI: {call_oi:,.0f}, Put OI: {put_oi:,.0f}")
+                    print(f"   CE Gamma: {ce_gamma:.6f}, PE Gamma: {pe_gamma:.6f}")
+                    print(f"   Call IV: {row.get('CE IV', 0):.2f}%, Put IV: {row.get('PE IV', 0):.2f}%")
                 
                 option_chain_data.append(data_point)
                 
-            print(f"✅ GRM DEBUG: Converted {len(option_chain_data)} real data points")
+            print(f"✅ GRM DEBUG: Converted {len(option_chain_data)} real data points with separate CE/PE gamma")
         
         # Get current Nifty spot price for GRM calculation  
         if 'spot_price' not in locals() or spot_price is None:
@@ -693,12 +732,31 @@ async def get_greeks_range():
         
         # Calculate GRM levels
         print("🚀 GRM DEBUG: Starting GRM calculation...")
+        
+        # Use calculated IVs if available, otherwise fallback
+        if 'front_iv_atm' in locals():
+            front_iv_for_grm = front_iv_atm
+            back_iv_for_grm = front_iv_atm * 1.1  # Estimate back IV as slightly higher
+            print(f"📊 GRM DEBUG: Using calculated IVs - Front: {front_iv_for_grm:.4f}, Back: {back_iv_for_grm:.4f}")
+        else:
+            front_iv_for_grm = 0.15
+            back_iv_for_grm = 0.18
+            print(f"📊 GRM DEBUG: Using fallback IVs - Front: {front_iv_for_grm:.4f}, Back: {back_iv_for_grm:.4f}")
+        
+        # Use calculated expected move if available
+        if 'expected_move_pct' in locals() and expected_move_pct > 0:
+            print(f"📊 GRM DEBUG: Using calculated expected move: {expected_move_pct:.4f} ({expected_move_pct*100:.2f}%)")
+        else:
+            expected_move_pct = 0.008
+            print(f"📊 GRM DEBUG: Using fallback expected move: {expected_move_pct:.4f} ({expected_move_pct*100:.2f}%)")
+        
         result = grm.greeks_range_model(
             option_chain=df, 
             spot_price=spot_price,
-            front_iv=0.15,
-            back_iv=0.18,
-            hours_to_close=6.5
+            front_iv=front_iv_for_grm,
+            back_iv=back_iv_for_grm,
+            hours_to_close=6.5,
+            expected_move_pct=expected_move_pct  # Pass calculated expected move
         )
         
         print(f"✅ GRM DEBUG: GRM calculation completed")

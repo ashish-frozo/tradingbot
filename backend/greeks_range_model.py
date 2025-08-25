@@ -18,39 +18,50 @@ class GreeksRangeModel:
         self.gex_history = []
         self.charm_history = []
         
-    def calculate_dealer_gex(self, option_chain: pd.DataFrame) -> Dict[float, float]:
+    def calculate_dealer_gex(self, option_chain: pd.DataFrame) -> Dict[str, Dict[float, float]]:
         """
-        Calculate Dealer Gamma Exposure (GEX) for each strike
-        Dealer GEX = -(Customer OI) * Gamma (dealers are short when customers are long)
+        Calculate TWO types of GEX:
+        1. GEX_magnitude: For finding gamma walls (magnitude only)
+        2. GEX_signed: For finding zero gamma level and regime (customer-signed)
         """
-        gex = {}
+        gex_magnitude = {}
+        gex_signed = {}
         total_call_oi = 0
         total_put_oi = 0
-        total_gamma = 0
         
-        print(f"🔢 GEX DEBUG: Processing {len(option_chain)} option chain rows")
+        print(f"🔢 GEX DEBUG: Processing {len(option_chain)} option chain rows with CORRECTED GEX calculation")
         
         for i, (_, row) in enumerate(option_chain.iterrows()):
             strike = float(row['strike'])
             call_oi = float(row.get('call_oi', 0))
             put_oi = float(row.get('put_oi', 0))
-            gamma = float(row.get('gamma', 0))
             
-            # Dealer GEX (negative of customer GEX)
-            strike_gex = -(call_oi + put_oi) * gamma
-            gex[strike] = strike_gex
+            # Use separate CE and PE gamma if available
+            call_gamma = float(row.get('call_gamma', row.get('gamma', 0)))
+            put_gamma = float(row.get('put_gamma', row.get('gamma', 0)))
+            
+            # GEX MAGNITUDE: For walls (always positive)
+            gex_mag = call_oi * abs(call_gamma) + put_oi * abs(put_gamma)
+            gex_magnitude[strike] = gex_mag
+            
+            # GEX SIGNED: For zero gamma and regime (customer perspective)
+            # Calls: positive gamma exposure for customers
+            # Puts: negative gamma exposure for customers (puts have negative gamma)
+            gex_signed_value = call_oi * call_gamma - put_oi * abs(put_gamma)
+            gex_signed[strike] = gex_signed_value
             
             total_call_oi += call_oi
             total_put_oi += put_oi
-            total_gamma += gamma
             
             if i < 3:  # Show first 3 strikes for debugging
-                print(f"   Strike {strike}: Call OI={call_oi:,.0f}, Put OI={put_oi:,.0f}, Gamma={gamma:.6f}, GEX={strike_gex:,.0f}")
+                print(f"   Strike {strike}: Call OI={call_oi:,.0f} (γ={call_gamma:.6f}), Put OI={put_oi:,.0f} (γ={put_gamma:.6f})")
+                print(f"     GEX Magnitude: {gex_mag:,.0f}, GEX Signed: {gex_signed_value:,.0f}")
         
-        print(f"🔢 GEX DEBUG: Totals - Call OI: {total_call_oi:,.0f}, Put OI: {total_put_oi:,.0f}, Avg Gamma: {total_gamma/len(option_chain):.6f}")
-        print(f"🔢 GEX DEBUG: GEX range: {min(gex.values()):,.0f} to {max(gex.values()):,.0f}")
+        print(f"🔢 GEX DEBUG: Totals - Call OI: {total_call_oi:,.0f}, Put OI: {total_put_oi:,.0f}")
+        print(f"🔢 GEX DEBUG: GEX Magnitude range: {min(gex_magnitude.values()):,.0f} to {max(gex_magnitude.values()):,.0f}")
+        print(f"🔢 GEX DEBUG: GEX Signed range: {min(gex_signed.values()):,.0f} to {max(gex_signed.values()):,.0f}")
             
-        return gex
+        return {"magnitude": gex_magnitude, "signed": gex_signed}
     
     def find_zero_gamma_level(self, gex: Dict[float, float]) -> float:
         """
@@ -273,7 +284,7 @@ class GreeksRangeModel:
     
     def greeks_range_model(self, option_chain: pd.DataFrame, spot_price: float, 
                           front_iv: float, back_iv: float, 
-                          hours_to_close: float = 6.5) -> Dict:
+                          hours_to_close: float = 6.5, expected_move_pct: float = None) -> Dict:
         """
         Main GRM calculation function
         """
@@ -287,16 +298,18 @@ class GreeksRangeModel:
             
             # Step 1: Calculate Dealer GEX and find gamma map
             print("🔢 GRM MODEL DEBUG: Step 1 - Calculating Dealer GEX...")
-            gex = self.calculate_dealer_gex(option_chain)
-            print(f"   🎯 GEX calculated for {len(gex)} strikes")
+            gex_data = self.calculate_dealer_gex(option_chain)
+            gex_magnitude = gex_data["magnitude"]
+            gex_signed = gex_data["signed"]
+            print(f"   🎯 GEX calculated for {len(gex_magnitude)} strikes")
             
-            zero_gamma = self.find_zero_gamma_level(gex)
+            zero_gamma = self.find_zero_gamma_level(gex_signed)
             print(f"   🎯 Zero gamma level: {zero_gamma}")
             
-            wall_lo, wall_hi = self.find_gamma_walls(gex, zero_gamma, spot_price)
+            wall_lo, wall_hi = self.find_gamma_walls(gex_magnitude, zero_gamma, spot_price)
             print(f"   🧱 Gamma walls: {wall_lo} (low) to {wall_hi} (high)")
             
-            gex_regime = self.calculate_gex_regime(gex, spot_price)
+            gex_regime = self.calculate_gex_regime(gex_signed, spot_price)
             print(f"   📊 GEX regime: {gex_regime}")
             
             # Step 2: Calculate vanna shift
@@ -313,9 +326,14 @@ class GreeksRangeModel:
             
             # Step 4: Calculate expected move
             print("📊 GRM MODEL DEBUG: Step 4 - Calculating expected move...")
-            expected_move = self.calculate_expected_move(option_chain, spot_price, hours_to_close)
+            if expected_move_pct is not None:
+                expected_move = expected_move_pct * spot_price
+                print(f"   📊 Using provided expected move: {expected_move_pct:.4f} ({expected_move_pct*100:.2f}%) = {expected_move:.2f} points")
+            else:
+                expected_move = self.calculate_expected_move(option_chain, spot_price, hours_to_close)
+                print(f"   📊 Calculated expected move: {expected_move:.2f}")
+            
             band_value = charm_modifier * expected_move
-            print(f"   📊 Expected move: {expected_move:.2f}")
             print(f"   📏 Band value: {band_value:.2f}")
             
             # Step 5: Build final range
