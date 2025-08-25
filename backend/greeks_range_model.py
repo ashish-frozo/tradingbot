@@ -59,25 +59,37 @@ class GreeksRangeModel:
         strikes = sorted(gex.keys())
         cumulative_gex = 0
         
+        print(f"🔍 ZERO GAMMA DEBUG: Analyzing {len(strikes)} strikes for zero gamma level")
+        print(f"   Strike range: {strikes[0]} to {strikes[-1]}")
+        
         for i, strike in enumerate(strikes):
             prev_cumulative = cumulative_gex
             cumulative_gex += gex[strike]
             
+            if i < 5 or i >= len(strikes) - 5:  # Show first and last 5
+                print(f"   Strike {strike}: GEX={gex[strike]:,.0f}, Cumulative={cumulative_gex:,.0f}")
+            
             # Check for zero crossing
             if prev_cumulative <= 0 <= cumulative_gex or cumulative_gex <= 0 <= prev_cumulative:
                 if i == 0:
+                    print(f"🎯 ZERO GAMMA DEBUG: Zero crossing at first strike {strike}")
                     return strike
                 
                 # Linear interpolation between strikes
                 prev_strike = strikes[i-1]
                 if cumulative_gex == prev_cumulative:
+                    print(f"🎯 ZERO GAMMA DEBUG: Exact zero at strike {strike}")
                     return strike
                 
                 ratio = abs(prev_cumulative) / abs(cumulative_gex - prev_cumulative)
-                return prev_strike + ratio * (strike - prev_strike)
+                interpolated_strike = prev_strike + ratio * (strike - prev_strike)
+                print(f"🎯 ZERO GAMMA DEBUG: Zero crossing between {prev_strike} and {strike}, interpolated to {interpolated_strike:.2f}")
+                return interpolated_strike
         
         # If no crossing found, return middle strike
-        return strikes[len(strikes) // 2] if strikes else 0
+        middle_strike = strikes[len(strikes) // 2]
+        print(f"🎯 ZERO GAMMA DEBUG: No zero crossing found, using middle strike {middle_strike}")
+        return middle_strike if strikes else 0
     
     def find_gamma_walls(self, gex: Dict[float, float], zero_gamma: float, spot_price: float) -> Tuple[float, float]:
         """
@@ -149,33 +161,60 @@ class GreeksRangeModel:
         """
         Calculate vanna-based spot shift
         """
+        print(f"🔄 VANNA DEBUG: Calculating vanna shift...")
+        print(f"   Front IV: {front_iv}, Back IV: {back_iv}")
+        
         # Expected IV change (front > back suggests compression)
         alpha = 0.5  # IV reversion fraction
         delta_sigma = alpha * max(0.0, front_iv - back_iv)
         
+        print(f"   IV delta: {front_iv - back_iv:.4f}, alpha: {alpha}, delta_sigma: {delta_sigma:.4f}")
+        
         if delta_sigma == 0:
+            print("   ❌ Delta sigma is zero, returning 0")
             return 0
         
         # Sum vanna and gamma in ±1.5% band around ATM
         window = spot_price * 0.015
         vanna_net = 0
         gamma_net = 0
+        atm_strikes_count = 0
+        
+        print(f"   ATM window: {spot_price - window:.2f} to {spot_price + window:.2f}")
         
         for _, row in option_chain.iterrows():
             strike = float(row['strike'])
             if abs(strike - spot_price) <= window:
-                vanna = float(row.get('vanna', 0))
+                atm_strikes_count += 1
+                # Since we don't have direct vanna, estimate it as gamma * iv_sensitivity
+                # Vanna ≈ gamma * vega / spot_price
                 gamma = float(row.get('gamma', 0))
+                call_iv = float(row.get('call_iv', 0.15))
+                put_iv = float(row.get('put_iv', 0.15))
+                avg_iv = (call_iv + put_iv) / 2
+                
+                # Estimate vanna (this is a simplified approximation)
+                estimated_vanna = gamma * avg_iv * 0.1  # Simple vanna estimation
+                
                 oi = float(row.get('call_oi', 0)) + float(row.get('put_oi', 0))
                 
-                vanna_net += vanna * oi
+                vanna_net += estimated_vanna * oi
                 gamma_net += abs(gamma) * oi
+                
+                if atm_strikes_count <= 3:
+                    print(f"     Strike {strike}: gamma={gamma:.6f}, avg_iv={avg_iv:.4f}, est_vanna={estimated_vanna:.6f}, oi={oi:,.0f}")
+        
+        print(f"   ATM strikes processed: {atm_strikes_count}")
+        print(f"   Vanna net: {vanna_net:.6f}, Gamma net: {gamma_net:.6f}")
         
         if gamma_net == 0:
+            print("   ❌ Gamma net is zero, returning 0")
             return 0
         
         # Vanna shift calculation
-        return -(vanna_net * delta_sigma) / gamma_net
+        vanna_shift = -(vanna_net * delta_sigma) / gamma_net
+        print(f"   📊 Calculated vanna shift: {vanna_shift:.6f}")
+        return vanna_shift
     
     def calculate_charm_modifier(self, option_chain: pd.DataFrame, spot_price: float) -> float:
         """
@@ -292,10 +331,25 @@ class GreeksRangeModel:
             print(f"   🎯 Blended center: {center:.2f}")
             
             # Calculate support and resistance, clipped to gamma walls
-            resistance = min(center + band_value, wall_hi)
-            support = max(center - band_value, wall_lo)
-            print(f"   📈 Raw resistance: {center + band_value:.2f} -> clipped: {resistance:.2f}")
-            print(f"   📉 Raw support: {center - band_value:.2f} -> clipped: {support:.2f}")
+            raw_resistance = center + band_value
+            raw_support = center - band_value
+            
+            resistance = min(raw_resistance, wall_hi)
+            support = max(raw_support, wall_lo)
+            
+            print(f"   📈 Raw resistance: {raw_resistance:.2f} -> clipped: {resistance:.2f}")
+            print(f"   📉 Raw support: {raw_support:.2f} -> clipped: {support:.2f}")
+            
+            # Validation: Ensure support < resistance
+            if support >= resistance:
+                print(f"   ⚠️ VALIDATION ERROR: Support ({support:.2f}) >= Resistance ({resistance:.2f})")
+                print(f"   🔧 Adjusting based on center {center:.2f} and band {band_value:.2f}")
+                
+                # Recalculate with proper bounds
+                resistance = max(center + band_value/2, support + 10)  # Ensure at least 10 points separation
+                support = min(center - band_value/2, resistance - 10)
+                
+                print(f"   ✅ Corrected: Support {support:.2f}, Resistance {resistance:.2f}")
             
             # Find secondary walls for short gamma regime
             secondary_support = None
