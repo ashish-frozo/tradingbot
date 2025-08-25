@@ -516,6 +516,8 @@ async def get_greeks_range():
         import pandas as pd
         import numpy as np
         
+        print("🔧 GRM DEBUG: Starting Greeks Range Model calculation...")
+        
         # Initialize GRM
         grm = GreeksRangeModel()
         
@@ -523,36 +525,62 @@ async def get_greeks_range():
         dhan = get_dhan_client()
         oc_df = None
         atm_strike = None
+        spot_price = None
         
         try:
-            print("🔄 GRM: Using improved single API call approach...")
+            print("🔄 GRM DEBUG: Using improved single API call approach...")
             
             # Single API call approach - get expiry list only once
             expiry_list = dhan.get_expiry_list('NIFTY', 'INDEX')
-            print(f"📅 GRM: Available expiries: {expiry_list}")
+            print(f"📅 GRM DEBUG: Available expiries: {expiry_list}")
             
             # Choose the most likely expiry to have data (typically next expiry)
             best_expiry_index = 1 if len(expiry_list) > 1 else 0
             expiry_date = expiry_list[best_expiry_index] if expiry_list else "unknown"
             
-            print(f"📡 GRM: Making SINGLE API call for expiry {expiry_date} (index {best_expiry_index})...")
+            print(f"📡 GRM DEBUG: Making SINGLE API call for expiry {expiry_date} (index {best_expiry_index})...")
             
             # Make only ONE API call to avoid rate limiting
             time.sleep(1)  # Respectful delay for GRM
             oc_result = dhan.get_option_chain("NIFTY", "INDEX", best_expiry_index, 21)
+            print(f"🔍 GRM DEBUG: API result type: {type(oc_result)}, length: {len(oc_result) if hasattr(oc_result, '__len__') else 'N/A'}")
+            
+            # Get spot price for debugging
+            spot_data = dhan.get_ltp_data("NIFTY")
+            spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
+            print(f"💰 GRM DEBUG: Current NIFTY spot price: {spot_price}")
             
             if isinstance(oc_result, tuple) and len(oc_result) == 2:
                 atm_strike, oc_df = oc_result
+                print(f"📊 GRM DEBUG: ATM strike from API: {atm_strike}")
+                print(f"📋 GRM DEBUG: DataFrame shape: {oc_df.shape if hasattr(oc_df, 'shape') else 'Not a DataFrame'}")
+                print(f"📋 GRM DEBUG: DataFrame columns: {list(oc_df.columns) if hasattr(oc_df, 'columns') else 'No columns'}")
+                
                 if hasattr(oc_df, 'empty') and not oc_df.empty:
-                    print(f"🎉 GRM: Got REAL option chain data from expiry {expiry_date}")
-                    print(f"📊 GRM: ATM: {atm_strike}, Rows: {len(oc_df)}")
+                    print(f"🎉 GRM DEBUG: Got REAL option chain data from expiry {expiry_date}")
+                    print(f"📊 GRM DEBUG: ATM: {atm_strike}, Rows: {len(oc_df)}")
+                    
+                    # Show sample data for debugging
+                    if len(oc_df) > 0:
+                        print(f"📋 GRM DEBUG: First row data:")
+                        print(f"   Strike Price: {oc_df.iloc[0].get('Strike Price', 'MISSING')}")
+                        print(f"   CE LTP: {oc_df.iloc[0].get('CE LTP', 'MISSING')}")
+                        print(f"   PE LTP: {oc_df.iloc[0].get('PE LTP', 'MISSING')}")
+                        print(f"   CE OI: {oc_df.iloc[0].get('CE OI', 'MISSING')}")
+                        print(f"   PE OI: {oc_df.iloc[0].get('PE OI', 'MISSING')}")
+                        print(f"   CE Delta: {oc_df.iloc[0].get('CE Delta', 'MISSING')}")
+                        print(f"   PE Delta: {oc_df.iloc[0].get('PE Delta', 'MISSING')}")
+                        print(f"   CE Gamma: {oc_df.iloc[0].get('CE Gamma', 'MISSING')}")
                 else:
-                    print(f"⚠️ GRM: Expiry {expiry_date} returned empty data")
+                    print(f"⚠️ GRM DEBUG: Expiry {expiry_date} returned empty data")
             else:
-                print(f"⚠️ GRM: Unexpected API response format")
+                print(f"⚠️ GRM DEBUG: Unexpected API response format - got {type(oc_result)}")
+                if hasattr(oc_result, '__dict__'):
+                    print(f"   Response attributes: {list(oc_result.__dict__.keys())}")
             
             # If we still don't have data, set to None to trigger fallback
             if oc_result is None or (isinstance(oc_result, tuple) and len(oc_result) == 2 and hasattr(oc_result[1], 'empty') and oc_result[1].empty):
+                print("🚫 GRM DEBUG: Setting oc_df to None to trigger fallback")
                 oc_df = None
                 
         except Exception as api_error:
@@ -562,17 +590,23 @@ async def get_greeks_range():
             oc_df = None
         
         if oc_df is None or (hasattr(oc_df, 'empty') and oc_df.empty):
-            print("No real option chain data available, generating fallback data for GRM")
+            print("🔄 GRM DEBUG: No real option chain data available, generating fallback data for GRM")
             # Generate realistic option chain data for GRM
-            spot_data = dhan.get_ltp_data("NIFTY")
-            spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
+            if spot_price is None:
+                spot_data = dhan.get_ltp_data("NIFTY")
+                spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
+            
+            print(f"💰 GRM DEBUG: Using spot price {spot_price} for fallback data generation")
             
             # Create fallback option chain data in GRM expected format
             atm_strike = round(spot_price / 50) * 50
             strikes = [atm_strike + i * 50 for i in range(-10, 11)]
             
+            print(f"🎯 GRM DEBUG: Generated ATM strike: {atm_strike}")
+            print(f"📊 GRM DEBUG: Generated strikes range: {strikes[0]} to {strikes[-1]} ({len(strikes)} strikes)")
+            
             option_chain_data = []
-            for strike in strikes:
+            for i, strike in enumerate(strikes):
                 distance = abs(strike - spot_price)
                 is_itm_call = strike < spot_price
                 is_itm_put = strike > spot_price
@@ -593,7 +627,7 @@ async def get_greeks_range():
                 put_delta = call_delta - 1
                 gamma = 0.015 * max(0.1, 1 - distance / (0.8 * spot_price))
                 
-                option_chain_data.append({
+                data_point = {
                     'strike': strike,
                     'call_price': call_price,
                     'put_price': put_price,
@@ -604,14 +638,22 @@ async def get_greeks_range():
                     'gamma': gamma,
                     'call_iv': 0.15 + distance / spot_price * 0.08,
                     'put_iv': 0.15 + distance / spot_price * 0.08
-                })
+                }
+                
+                if i == 0:  # Show first data point for debugging
+                    print(f"📋 GRM DEBUG: Sample fallback data point: {data_point}")
+                
+                option_chain_data.append(data_point)
+                
+            print(f"✅ GRM DEBUG: Generated {len(option_chain_data)} fallback data points")
         else:
+            print("🔄 GRM DEBUG: Converting real Dhan option chain format to GRM expected format")
             # Convert real Dhan option chain format to GRM expected format
             option_chain_data = []
-            for _, row in oc_df.iterrows():
+            for idx, (_, row) in enumerate(oc_df.iterrows()):
                 strike = row.get("Strike Price", 0)
                 
-                option_chain_data.append({
+                data_point = {
                     'strike': strike,
                     'call_price': row.get("CE LTP", 0),
                     'put_price': row.get("PE LTP", 0),
@@ -622,17 +664,35 @@ async def get_greeks_range():
                     'gamma': row.get("CE Gamma", row.get("PE Gamma", 0)),  # Use CE gamma or PE gamma
                     'call_iv': row.get("CE IV", 0),
                     'put_iv': row.get("PE IV", 0)
-                })
+                }
+                
+                if idx == 0:  # Show first data point for debugging
+                    print(f"📋 GRM DEBUG: Sample real data point: {data_point}")
+                
+                option_chain_data.append(data_point)
+                
+            print(f"✅ GRM DEBUG: Converted {len(option_chain_data)} real data points")
         
         # Get current Nifty spot price for GRM calculation  
-        if 'spot_price' not in locals():
+        if 'spot_price' not in locals() or spot_price is None:
             spot_data = dhan.get_ltp_data("NIFTY")
             spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
         
+        print(f"🎯 GRM DEBUG: Final spot price for calculation: {spot_price}")
+        
         # Convert to DataFrame
         df = pd.DataFrame(option_chain_data)
+        print(f"📊 GRM DEBUG: DataFrame shape before GRM: {df.shape}")
+        print(f"📋 GRM DEBUG: DataFrame columns: {list(df.columns)}")
+        
+        if not df.empty:
+            print(f"📈 GRM DEBUG: Strike range: {df['strike'].min()} to {df['strike'].max()}")
+            print(f"💰 GRM DEBUG: Call OI sum: {df['call_oi'].sum():,.0f}")
+            print(f"💰 GRM DEBUG: Put OI sum: {df['put_oi'].sum():,.0f}")
+            print(f"🔢 GRM DEBUG: Gamma range: {df['gamma'].min():.6f} to {df['gamma'].max():.6f}")
         
         # Calculate GRM levels
+        print("🚀 GRM DEBUG: Starting GRM calculation...")
         result = grm.greeks_range_model(
             option_chain=df, 
             spot_price=spot_price,
@@ -640,6 +700,14 @@ async def get_greeks_range():
             back_iv=0.18,
             hours_to_close=6.5
         )
+        
+        print(f"✅ GRM DEBUG: GRM calculation completed")
+        print(f"📊 GRM DEBUG: Result keys: {list(result.keys()) if result else 'No result'}")
+        if result:
+            print(f"🎯 GRM DEBUG: Support: {result.get('support', 'N/A')}")
+            print(f"🎯 GRM DEBUG: Resistance: {result.get('resistance', 'N/A')}")
+            print(f"🎯 GRM DEBUG: Zero Gamma: {result.get('zero_gamma', 'N/A')}")
+            print(f"🎯 GRM DEBUG: Center: {result.get('center', 'N/A')}")
         
         return result
         

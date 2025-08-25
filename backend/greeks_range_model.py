@@ -24,15 +24,31 @@ class GreeksRangeModel:
         Dealer GEX = -(Customer OI) * Gamma (dealers are short when customers are long)
         """
         gex = {}
+        total_call_oi = 0
+        total_put_oi = 0
+        total_gamma = 0
         
-        for _, row in option_chain.iterrows():
+        print(f"🔢 GEX DEBUG: Processing {len(option_chain)} option chain rows")
+        
+        for i, (_, row) in enumerate(option_chain.iterrows()):
             strike = float(row['strike'])
             call_oi = float(row.get('call_oi', 0))
             put_oi = float(row.get('put_oi', 0))
             gamma = float(row.get('gamma', 0))
             
             # Dealer GEX (negative of customer GEX)
-            gex[strike] = -(call_oi + put_oi) * gamma
+            strike_gex = -(call_oi + put_oi) * gamma
+            gex[strike] = strike_gex
+            
+            total_call_oi += call_oi
+            total_put_oi += put_oi
+            total_gamma += gamma
+            
+            if i < 3:  # Show first 3 strikes for debugging
+                print(f"   Strike {strike}: Call OI={call_oi:,.0f}, Put OI={put_oi:,.0f}, Gamma={gamma:.6f}, GEX={strike_gex:,.0f}")
+        
+        print(f"🔢 GEX DEBUG: Totals - Call OI: {total_call_oi:,.0f}, Put OI: {total_put_oi:,.0f}, Avg Gamma: {total_gamma/len(option_chain):.6f}")
+        print(f"🔢 GEX DEBUG: GEX range: {min(gex.values()):,.0f} to {max(gex.values()):,.0f}")
             
         return gex
     
@@ -223,35 +239,63 @@ class GreeksRangeModel:
         Main GRM calculation function
         """
         try:
+            print(f"🔧 GRM MODEL DEBUG: Starting calculation with:")
+            print(f"   📊 Option chain shape: {option_chain.shape}")
+            print(f"   💰 Spot price: {spot_price}")
+            print(f"   📈 Front IV: {front_iv}")
+            print(f"   📉 Back IV: {back_iv}")
+            print(f"   ⏰ Hours to close: {hours_to_close}")
+            
             # Step 1: Calculate Dealer GEX and find gamma map
+            print("🔢 GRM MODEL DEBUG: Step 1 - Calculating Dealer GEX...")
             gex = self.calculate_dealer_gex(option_chain)
+            print(f"   🎯 GEX calculated for {len(gex)} strikes")
+            
             zero_gamma = self.find_zero_gamma_level(gex)
+            print(f"   🎯 Zero gamma level: {zero_gamma}")
+            
             wall_lo, wall_hi = self.find_gamma_walls(gex, zero_gamma, spot_price)
+            print(f"   🧱 Gamma walls: {wall_lo} (low) to {wall_hi} (high)")
+            
             gex_regime = self.calculate_gex_regime(gex, spot_price)
+            print(f"   📊 GEX regime: {gex_regime}")
             
             # Step 2: Calculate vanna shift
+            print("🔄 GRM MODEL DEBUG: Step 2 - Calculating vanna shift...")
             vanna_shift = self.calculate_vanna_shift(option_chain, spot_price, front_iv, back_iv)
             vanna_center = np.clip(spot_price + vanna_shift, wall_lo, wall_hi)
+            print(f"   ↔️ Vanna shift: {vanna_shift:.2f}")
+            print(f"   🎯 Vanna center: {vanna_center:.2f}")
             
             # Step 3: Calculate charm modifier
+            print("⚡ GRM MODEL DEBUG: Step 3 - Calculating charm modifier...")
             charm_modifier = self.calculate_charm_modifier(option_chain, spot_price)
+            print(f"   ⚡ Charm modifier: {charm_modifier:.4f}")
             
             # Step 4: Calculate expected move
+            print("📊 GRM MODEL DEBUG: Step 4 - Calculating expected move...")
             expected_move = self.calculate_expected_move(option_chain, spot_price, hours_to_close)
             band_value = charm_modifier * expected_move
+            print(f"   📊 Expected move: {expected_move:.2f}")
+            print(f"   📏 Band value: {band_value:.2f}")
             
             # Step 5: Build final range
+            print("🏗️ GRM MODEL DEBUG: Step 5 - Building final range...")
             # Blend center based on regime
             if gex_regime == "short_gamma":
                 w = 0.7
             else:
                 w = 0.5
             
+            print(f"   ⚖️ Regime weight: {w}")
             center = w * vanna_center + (1 - w) * zero_gamma
+            print(f"   🎯 Blended center: {center:.2f}")
             
             # Calculate support and resistance, clipped to gamma walls
             resistance = min(center + band_value, wall_hi)
             support = max(center - band_value, wall_lo)
+            print(f"   📈 Raw resistance: {center + band_value:.2f} -> clipped: {resistance:.2f}")
+            print(f"   📉 Raw support: {center - band_value:.2f} -> clipped: {support:.2f}")
             
             # Find secondary walls for short gamma regime
             secondary_support = None
