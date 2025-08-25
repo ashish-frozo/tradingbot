@@ -18,6 +18,21 @@ class GreeksRangeModel:
         self.gex_history = []
         self.charm_history = []
         
+        # Config constants
+        self.STRIKE_STEP = 50
+        self.WALL_WINDOW_PCT = 0.03     # ±3% for wall search
+        self.ZG_NEAR_PCT = 0.03         # ZG must be within 3% of spot to be used for split/blend
+        self.REGIME_ZS_THRESH = 1.0
+    
+    def _norm_iv(self, x: float) -> float:
+        """Normalize IV to decimal (handle both percent and decimal formats)"""
+        x = float(x)
+        return x/100.0 if x > 1.0 else x
+    
+    def _nearest_key(self, d: Dict[float, float], x: float) -> float:
+        """Find nearest key in dictionary to handle float key equality issues"""
+        return min(d.keys(), key=lambda k: abs(k - x)) if d else x
+        
     def calculate_dealer_gex(self, option_chain: pd.DataFrame) -> Dict[str, Dict[float, float]]:
         """
         Calculate TWO types of GEX:
@@ -103,7 +118,7 @@ class GreeksRangeModel:
         print(f"   Final cumulative: {cumulative_gex:,.0f}")
         return (None, False)
     
-    def find_gamma_walls(self, gex_mag: Dict[float, float], zero_gamma: float, spot_price: float) -> Tuple[float, float]:
+    def find_gamma_walls(self, gex_mag: Dict[float, float], split_level: float, spot_price: float) -> Tuple[float, float]:
         """
         Find gamma walls (first local maximum of GEX magnitude above and below ZG)
         """
@@ -113,7 +128,7 @@ class GreeksRangeModel:
         vals = np.array([gex_mag[k] for k in strikes])
         
         # Filter to ±3% of spot price
-        mask = np.abs(strikes - spot_price) <= spot_price * 0.03
+        mask = np.abs(strikes - spot_price) <= spot_price * self.WALL_WINDOW_PCT
         strikes_filtered = strikes[mask]
         vals_filtered = vals[mask]
         
@@ -121,11 +136,11 @@ class GreeksRangeModel:
             print(f"🧱 WALLS DEBUG: Too few strikes in range, using default walls")
             return spot_price * 0.99, spot_price * 1.01
             
-        print(f"🧱 WALLS DEBUG: Looking for walls around ZG={zero_gamma:.2f}, spot={spot_price:.2f}")
+        print(f"🧱 WALLS DEBUG: Looking for walls around split level={split_level:.2f}, spot={spot_price:.2f}")
         
-        # Split strikes above and below zero gamma
-        above_mask = strikes_filtered > zero_gamma
-        below_mask = strikes_filtered < zero_gamma
+        # Split strikes above and below split level
+        above_mask = strikes_filtered > split_level
+        below_mask = strikes_filtered < split_level
         
         def find_strongest_local_max(strike_subset, vals_subset, subset_name=""):
             """Find the strongest local maximum closest to spot"""
@@ -145,8 +160,8 @@ class GreeksRangeModel:
                 print(f"   {subset_name} wall: {best_strike:.0f} (GEX: {best_gex:,.0f}) from {len(candidates)} candidates")
                 return float(best_strike)
             
-            # Fallback to nearest strike
-            return float(strike_subset[0])
+            # Fallback to nearest strike to spot
+            return float(sorted(strike_subset, key=lambda s: abs(s - spot_price))[0])
         
         # Find walls using strongest local max
         if np.any(above_mask):
@@ -228,11 +243,14 @@ class GreeksRangeModel:
             strike = float(row['strike'])
             if abs(strike - spot_price) <= window:
                 atm_strikes_count += 1
-                # Since we don't have direct vanna, estimate it as gamma * iv_sensitivity
-                # Vanna ≈ gamma * vega / spot_price
-                gamma = float(row.get('gamma', 0))
-                call_iv = float(row.get('call_iv', 0.15))
-                put_iv = float(row.get('put_iv', 0.15))
+                # Use both gammas if available for better vanna estimation  
+                call_gamma = float(row.get('call_gamma', 0))
+                put_gamma = float(row.get('put_gamma', 0))
+                gamma = float(row.get('gamma', 0.5 * (call_gamma + put_gamma)))
+                
+                # CRITICAL: Normalize IVs (handle both percent and decimal formats)
+                call_iv = self._norm_iv(row.get('call_iv', 0.15))
+                put_iv = self._norm_iv(row.get('put_iv', 0.15))
                 avg_iv = (call_iv + put_iv) / 2
                 
                 # Estimate vanna (this is a simplified approximation)
@@ -317,8 +335,18 @@ class GreeksRangeModel:
         # Straddle price already represents expected move to expiry
         em_pts = call_mid + put_mid
         
+        # Data quality check
+        used_ltp = (call_ask == 0 or put_ask == 0)
+        if used_ltp:
+            print("📊 EM DEBUG: DATA_QUALITY: EM derived from LTP (no bid/ask book)")
+        
         print(f"📊 EM DEBUG: Call mid={call_mid:.2f}, Put mid={put_mid:.2f}, Straddle={em_pts:.2f}")
         print(f"📊 EM DEBUG: EM = {em_pts:.2f} pts ({em_pts/spot_price*100:.2f}% of spot)")
+        
+        # EM sanity check for front weekly
+        em_pct = em_pts / spot_price
+        if not (0.003 <= em_pct <= 0.02):
+            print(f"📊 EM DEBUG: DATA_QUALITY: EM {em_pct:.2%} out of band for front weekly; check bids/asks/expiry selection")
         
         # CRITICAL FIX: NO extra time scaling - straddle already represents move to expiry
         return em_pts
@@ -330,6 +358,11 @@ class GreeksRangeModel:
         Main GRM calculation function
         """
         try:
+            # NaN protection - clean data before calculations
+            import numpy as np
+            option_chain = option_chain.replace([np.inf, -np.inf], np.nan).dropna(subset=['strike','call_oi','put_oi'])
+            print(f"📊 DATA CLEANED: Removed NaN/inf rows, {len(option_chain)} rows remaining")
+            
             print(f"🔧 GRM MODEL DEBUG: Starting calculation with:")
             print(f"   📊 Option chain shape: {option_chain.shape}")
             print(f"   💰 Spot price: {spot_price}")
@@ -350,7 +383,7 @@ class GreeksRangeModel:
             if not zg_valid:
                 split_level = spot_price
                 print(f"   🎯 Zero gamma: INVALID (no crossing) - using spot {split_level:.0f} for wall split")
-            elif abs(zero_gamma - spot_price) > 0.03 * spot_price:
+            elif abs(zero_gamma - spot_price) > self.ZG_NEAR_PCT * spot_price:
                 split_level = spot_price
                 print(f"   🎯 Zero gamma: {zero_gamma:.2f} (VALID but TOO FAR from spot) - using spot {split_level:.0f} for wall split")
                 print(f"   📏 Distance: {abs(zero_gamma - spot_price):.0f} pts ({abs(zero_gamma - spot_price)/spot_price*100:.1f}%)")
@@ -401,7 +434,7 @@ class GreeksRangeModel:
             print(f"   ⚖️ Regime weight: {w}")
             base_center_calc = spot_price + vanna_shift  # Use this for blending
             
-            if zg_valid and abs(zero_gamma - spot_price) <= 0.03 * spot_price:
+            if zg_valid and abs(zero_gamma - spot_price) <= self.ZG_NEAR_PCT * spot_price:
                 center = w * base_center_calc + (1 - w) * zero_gamma
                 print(f"   🎯 Blended center: {w:.1f}*{base_center_calc:.2f} + {1-w:.1f}*{zero_gamma:.2f} = {center:.2f}")
             else:
@@ -430,15 +463,29 @@ class GreeksRangeModel:
                 
             # Enhanced logging for debugging
             print(f"   📊 FINAL INVARIANTS:")
-            print(f"      ZG_VALID={zg_valid} ZG={zero_gamma:.2f if zero_gamma else 'None'}")
-            if zero_gamma:
-                print(f"      DIST_FROM_SPOT={abs(zero_gamma - spot_price):.0f}pts ({abs(zero_gamma - spot_price)/spot_price*100:.1f}%)")
-            print(f"      WALLS_LOW={wall_lo:.0f} (GEX: {gex_magnitude.get(wall_lo, 'N/A'):,.0f})")
-            print(f"      WALLS_HIGH={wall_hi:.0f} (GEX: {gex_magnitude.get(wall_hi, 'N/A'):,.0f})")
+            zg_txt = f"{zero_gamma:.2f}" if (zero_gamma is not None) else "None"
+            print(f"      ZG_VALID={zg_valid} ZG={zg_txt}")
+            if zero_gamma is not None:
+                dist = abs(zero_gamma - spot_price)
+                print(f"      DIST_FROM_SPOT={dist:.0f}pts ({dist/spot_price*100:.1f}%)")
+            
+            # Safe GEX printing for walls with nearest key lookup (handle zero GEX correctly)
+            base_lo = gex_magnitude.get(wall_lo)
+            if base_lo is None:
+                base_lo = gex_magnitude.get(self._nearest_key(gex_magnitude, wall_lo))
+            base_hi = gex_magnitude.get(wall_hi)
+            if base_hi is None:
+                base_hi = gex_magnitude.get(self._nearest_key(gex_magnitude, wall_hi))
+            print(f"      WALLS_LOW={wall_lo:.0f} (GEX: {base_lo:,.0f})")
+            print(f"      WALLS_HIGH={wall_hi:.0f} (GEX: {base_hi:,.0f})")
             print(f"      EM_STRADDLE_PTS={expected_move:.0f}")
             
             # Ensure support < resistance
             assert support < resistance, f"CRITICAL: support {support} >= resistance {resistance}"
+            
+            # Determine mode for frontend display
+            mode = "collapsed_to_walls" if (support == wall_lo and resistance == wall_hi) else "normal"
+            print(f"      MODE={mode}")
             
             # Find secondary walls for short gamma regime
             secondary_support = None
@@ -449,20 +496,20 @@ class GreeksRangeModel:
                 # Find next gamma walls beyond primary walls using magnitude
                 strikes = sorted(gex_magnitude.keys())
                 
-                # Below primary wall
+                # Below primary wall (use nearest-key lookup to handle float equality)
                 lows = [s for s in strikes if s < wall_lo]
-                if lows and wall_lo in gex_magnitude:
-                    base_gex = abs(gex_magnitude[wall_lo])
-                    candidates = [s for s in lows if abs(gex_magnitude[s]) >= 0.5 * base_gex]
+                if lows and gex_magnitude:
+                    base_gex = abs(gex_magnitude[self._nearest_key(gex_magnitude, wall_lo)])
+                    candidates = [s for s in lows if abs(gex_magnitude[self._nearest_key(gex_magnitude, s)]) >= 0.5 * base_gex]
                     if candidates:
                         secondary_support = float(candidates[-1])  # Closest to wall_lo
                         print(f"   📉 Secondary support: {secondary_support:.0f}")
                 
-                # Above primary wall  
+                # Above primary wall (use nearest-key lookup to handle float equality)
                 highs = [s for s in strikes if s > wall_hi]
-                if highs and wall_hi in gex_magnitude:
-                    base_gex = abs(gex_magnitude[wall_hi])
-                    candidates = [s for s in highs if abs(gex_magnitude[s]) >= 0.5 * base_gex]
+                if highs and gex_magnitude:
+                    base_gex = abs(gex_magnitude[self._nearest_key(gex_magnitude, wall_hi)])
+                    candidates = [s for s in highs if abs(gex_magnitude[self._nearest_key(gex_magnitude, s)]) >= 0.5 * base_gex]
                     if candidates:
                         secondary_resistance = float(candidates[0])  # Closest to wall_hi
                         print(f"   📈 Secondary resistance: {secondary_resistance:.0f}")
@@ -481,6 +528,7 @@ class GreeksRangeModel:
                 "expected_move": round(expected_move, 2),
                 "charm_modifier": round(charm_modifier, 2),
                 "vanna_shift": round(vanna_shift, 2),
+                "mode": mode,
                 "timestamp": datetime.now().isoformat(),
                 "trading_strategy": self._get_trading_strategy(gex_regime, center, support, resistance)
             }
