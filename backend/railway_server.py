@@ -86,7 +86,7 @@ async def get_equity_data():
         dhan = get_dhan_client()
         
         # Get fund limits to calculate equity
-        fund_response = dhan.Dhan.get_fund_limits()
+        fund_response = dhan.get_balance()
         
         if fund_response and fund_response.get('status') != 'failure':
             fund_data = fund_response.get('data', {})
