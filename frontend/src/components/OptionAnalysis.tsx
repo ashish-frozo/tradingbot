@@ -56,6 +56,7 @@ export const OptionAnalysis: React.FC = () => {
   const [optionData, setOptionData] = useState<OptionChainData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pcr' | 'maxpain' | 'ivskew' | 'oi' | 'greeks' | 'volterm' | 'strategy' | 'risk'>('pcr');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchOptionChain();
@@ -68,7 +69,7 @@ export const OptionAnalysis: React.FC = () => {
       const response = await fetch('http://localhost:8001/api/option-chain');
       const rawData = await response.json();
       
-      // Transform API response to match component expectations
+      // Handle different response statuses
       if (rawData.status === 'success' && rawData.data) {
         const transformedData = {
           success: true,
@@ -105,12 +106,22 @@ export const OptionAnalysis: React.FC = () => {
           expiry: '2025-08-28'
         };
         setOptionData(transformedData);
+        setError(null);
+      } else if (rawData.status === 'blocked') {
+        // Handle kill switch scenarios
+        const message = rawData.message || 'Data fetching is currently disabled';
+        setError(message);
+        setOptionData(null);
       } else {
+        // Handle other error statuses
+        const message = rawData.message || rawData.note || 'Failed to load option chain data';
+        setError(message);
         setOptionData(null);
       }
       setLoading(false);
     } catch (error) {
       console.error('Error fetching option chain:', error);
+      setError('Network error: Unable to connect to the server');
       setOptionData(null);
       setLoading(false);
     }
@@ -331,6 +342,28 @@ export const OptionAnalysis: React.FC = () => {
     );
   }
 
+  if (error) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Option Analysis</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8">
+            <div className="text-amber-600 dark:text-amber-400 mb-2">
+              {error}
+            </div>
+            {error.includes('market hours') && (
+              <div className="text-sm text-gray-500">
+                <p>Analysis will resume when market opens (9:15 AM - 3:30 PM IST)</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (!optionData || !optionData.success) {
     return (
       <Card>
@@ -339,7 +372,7 @@ export const OptionAnalysis: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-gray-500">
-            Failed to load option data
+            No option data available for analysis
           </div>
         </CardContent>
       </Card>
