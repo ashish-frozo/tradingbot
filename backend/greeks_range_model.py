@@ -63,82 +63,112 @@ class GreeksRangeModel:
             
         return {"magnitude": gex_magnitude, "signed": gex_signed}
     
-    def find_zero_gamma_level(self, gex: Dict[float, float]) -> float:
+    def find_zero_gamma_level(self, gex_signed: Dict[float, float]) -> Tuple[Optional[float], bool]:
         """
         Find Zero-Gamma level where cumulative GEX crosses zero
+        Returns: (zero_gamma_level, is_valid)
         """
-        strikes = sorted(gex.keys())
-        cumulative_gex = 0
+        from typing import Optional, Tuple
+        
+        strikes = sorted(gex_signed.keys())
+        cumulative_gex = 0.0
         
         print(f"🔍 ZERO GAMMA DEBUG: Analyzing {len(strikes)} strikes for zero gamma level")
         print(f"   Strike range: {strikes[0]} to {strikes[-1]}")
         
         for i, strike in enumerate(strikes):
             prev_cumulative = cumulative_gex
-            cumulative_gex += gex[strike]
+            cumulative_gex += gex_signed[strike]
             
             if i < 5 or i >= len(strikes) - 5:  # Show first and last 5
-                print(f"   Strike {strike}: GEX={gex[strike]:,.0f}, Cumulative={cumulative_gex:,.0f}")
+                print(f"   Strike {strike}: GEX={gex_signed[strike]:,.0f}, Cumulative={cumulative_gex:,.0f}")
             
-            # Check for zero crossing
-            if prev_cumulative <= 0 <= cumulative_gex or cumulative_gex <= 0 <= prev_cumulative:
+            # Check for sign change (zero crossing)
+            if prev_cumulative == 0 or (prev_cumulative < 0 < cumulative_gex) or (prev_cumulative > 0 > cumulative_gex):
                 if i == 0:
                     print(f"🎯 ZERO GAMMA DEBUG: Zero crossing at first strike {strike}")
-                    return strike
+                    return (strike, True)
                 
                 # Linear interpolation between strikes
                 prev_strike = strikes[i-1]
                 if cumulative_gex == prev_cumulative:
                     print(f"🎯 ZERO GAMMA DEBUG: Exact zero at strike {strike}")
-                    return strike
+                    return (strike, True)
                 
-                ratio = abs(prev_cumulative) / abs(cumulative_gex - prev_cumulative)
-                interpolated_strike = prev_strike + ratio * (strike - prev_strike)
-                print(f"🎯 ZERO GAMMA DEBUG: Zero crossing between {prev_strike} and {strike}, interpolated to {interpolated_strike:.2f}")
-                return interpolated_strike
+                # Interpolate zero crossing point
+                y0, y1 = prev_cumulative, cumulative_gex
+                k0, k1 = prev_strike, strike
+                zg = k0 + (k1 - k0) * (-y0) / (y1 - y0)
+                
+                print(f"🎯 ZERO GAMMA DEBUG: Zero crossing between {k0} and {k1}, interpolated to {zg:.2f}")
+                return (float(zg), True)
         
-        # If no crossing found, return middle strike
-        middle_strike = strikes[len(strikes) // 2]
-        print(f"🎯 ZERO GAMMA DEBUG: No zero crossing found, using middle strike {middle_strike}")
-        return middle_strike if strikes else 0
+        # No crossing found
+        print(f"🔍 ZERO GAMMA DEBUG: No zero crossing found - all GEX has same sign")
+        print(f"   Final cumulative: {cumulative_gex:,.0f}")
+        return (None, False)
     
-    def find_gamma_walls(self, gex: Dict[float, float], zero_gamma: float, spot_price: float) -> Tuple[float, float]:
+    def find_gamma_walls(self, gex_mag: Dict[float, float], zero_gamma: float, spot_price: float) -> Tuple[float, float]:
         """
-        Find gamma walls (first local extrema of |GEX| above and below ZG)
-        Within ±3% of spot price
+        Find gamma walls (first local maximum of GEX magnitude above and below ZG)
         """
-        strikes = sorted(gex.keys())
-        spot_range = spot_price * 0.03  # ±3%
+        import numpy as np
         
-        # Filter strikes within range
-        valid_strikes = [s for s in strikes if abs(s - spot_price) <= spot_range]
+        strikes = np.array(sorted(gex_mag.keys()))
+        vals = np.array([gex_mag[k] for k in strikes])
         
-        if not valid_strikes:
-            return spot_price * 0.98, spot_price * 1.02
+        # Filter to ±3% of spot price
+        mask = np.abs(strikes - spot_price) <= spot_price * 0.03
+        strikes_filtered = strikes[mask]
+        vals_filtered = vals[mask]
         
-        # Find strikes above and below zero gamma
-        above_zg = [s for s in valid_strikes if s > zero_gamma]
-        below_zg = [s for s in valid_strikes if s < zero_gamma]
+        if len(strikes_filtered) < 3:
+            print(f"🧱 WALLS DEBUG: Too few strikes in range, using default walls")
+            return spot_price * 0.99, spot_price * 1.01
+            
+        print(f"🧱 WALLS DEBUG: Looking for walls around ZG={zero_gamma:.2f}, spot={spot_price:.2f}")
         
-        # Find first local maximum above ZG
-        upper_wall = spot_price * 1.02  # default
-        if above_zg:
-            max_gex = 0
-            for strike in above_zg:
-                if abs(gex[strike]) > max_gex:
-                    max_gex = abs(gex[strike])
-                    upper_wall = strike
+        # Split strikes above and below zero gamma
+        above_mask = strikes_filtered > zero_gamma
+        below_mask = strikes_filtered < zero_gamma
         
-        # Find first local maximum below ZG
-        lower_wall = spot_price * 0.98  # default
-        if below_zg:
-            max_gex = 0
-            for strike in reversed(below_zg):
-                if abs(gex[strike]) > max_gex:
-                    max_gex = abs(gex[strike])
-                    lower_wall = strike
+        def find_first_local_max(strike_subset, vals_subset, forward=True):
+            """Find first local maximum in the given direction"""
+            if len(strike_subset) < 3:
+                return float(strike_subset[-1]) if len(strike_subset) > 0 else None
+                
+            indices = range(1, len(vals_subset) - 1)
+            if not forward:
+                indices = reversed(list(indices))
+                
+            for i in indices:
+                if vals_subset[i] >= vals_subset[i-1] and vals_subset[i] >= vals_subset[i+1]:
+                    print(f"   Found local max at strike {strike_subset[i]:.0f} with GEX {vals_subset[i]:,.0f}")
+                    return float(strike_subset[i])
+            
+            # Fallback to edge
+            return float(strike_subset[-1] if forward else strike_subset[0])
         
-        return lower_wall, upper_wall
+        # Find walls
+        if np.any(above_mask):
+            above_strikes = strikes_filtered[above_mask] 
+            above_vals = vals_filtered[above_mask]
+            wall_hi = find_first_local_max(above_strikes, above_vals, forward=True)
+        else:
+            wall_hi = float(strikes_filtered[-1])
+            
+        if np.any(below_mask):
+            below_strikes = strikes_filtered[below_mask]
+            below_vals = vals_filtered[below_mask] 
+            wall_lo = find_first_local_max(below_strikes, below_vals, forward=False)
+        else:
+            wall_lo = float(strikes_filtered[0])
+        
+        # Ensure proper ordering
+        wall_lo, wall_hi = min(wall_lo, wall_hi), max(wall_lo, wall_hi)
+        print(f"🧱 WALLS DEBUG: Final walls - Low: {wall_lo:.0f}, High: {wall_hi:.0f}")
+        
+        return wall_lo, wall_hi
     
     def calculate_gex_regime(self, gex: Dict[float, float], spot_price: float) -> str:
         """
@@ -265,22 +295,32 @@ class GreeksRangeModel:
     def calculate_expected_move(self, option_chain: pd.DataFrame, spot_price: float, 
                               hours_to_close: float = 6.5) -> float:
         """
-        Calculate expected move using straddle method
+        Calculate expected move from ATM straddle mid prices (NO extra time scaling)
         """
         # Find ATM options
         atm_strike = min(option_chain['strike'], key=lambda x: abs(x - spot_price))
         atm_row = option_chain[option_chain['strike'] == atm_strike].iloc[0]
         
-        call_price = float(atm_row.get('call_price', 0))
-        put_price = float(atm_row.get('put_price', 0))
+        print(f"📊 EM DEBUG: ATM strike {atm_strike} for spot {spot_price}")
         
-        # Expected move as percentage
-        em_pct = (call_price + put_price) / spot_price
+        # Try to get bid/ask, fallback to LTP
+        call_bid = float(atm_row.get('call_bid', atm_row.get('call_price', 0)))
+        call_ask = float(atm_row.get('call_ask', atm_row.get('call_price', 0)))
+        put_bid = float(atm_row.get('put_bid', atm_row.get('put_price', 0)))
+        put_ask = float(atm_row.get('put_ask', atm_row.get('put_price', 0)))
         
-        # Scale by time (for intraday)
-        time_factor = np.sqrt(hours_to_close / (252 * 6.5))
+        # Calculate mid prices
+        call_mid = (call_bid + call_ask) / 2.0 if call_ask > 0 else call_bid
+        put_mid = (put_bid + put_ask) / 2.0 if put_ask > 0 else put_bid
         
-        return em_pct * time_factor * spot_price
+        # Straddle price already represents expected move to expiry
+        em_pts = call_mid + put_mid
+        
+        print(f"📊 EM DEBUG: Call mid={call_mid:.2f}, Put mid={put_mid:.2f}, Straddle={em_pts:.2f}")
+        print(f"📊 EM DEBUG: EM = {em_pts:.2f} pts ({em_pts/spot_price*100:.2f}% of spot)")
+        
+        # CRITICAL FIX: NO extra time scaling - straddle already represents move to expiry
+        return em_pts
     
     def greeks_range_model(self, option_chain: pd.DataFrame, spot_price: float, 
                           front_iv: float, back_iv: float, 
@@ -303,8 +343,14 @@ class GreeksRangeModel:
             gex_signed = gex_data["signed"]
             print(f"   🎯 GEX calculated for {len(gex_magnitude)} strikes")
             
-            zero_gamma = self.find_zero_gamma_level(gex_signed)
-            print(f"   🎯 Zero gamma level: {zero_gamma}")
+            zero_gamma, zg_valid = self.find_zero_gamma_level(gex_signed)
+            if not zg_valid:
+                # Fallback: use ATM strike as pin level
+                atm_strike = min(option_chain['strike'], key=lambda x: abs(x - spot_price))
+                zero_gamma = atm_strike
+                print(f"   🎯 Zero gamma: INVALID (no crossing) - using ATM pin {zero_gamma:.0f}")
+            else:
+                print(f"   🎯 Zero gamma level: {zero_gamma:.2f} (VALID)")
             
             wall_lo, wall_hi = self.find_gamma_walls(gex_magnitude, zero_gamma, spot_price)
             print(f"   🧱 Gamma walls: {wall_lo} (low) to {wall_hi} (high)")
@@ -338,15 +384,21 @@ class GreeksRangeModel:
             
             # Step 5: Build final range
             print("🏗️ GRM MODEL DEBUG: Step 5 - Building final range...")
-            # Blend center based on regime
+            # Blend center based on regime and ZG validity
             if gex_regime == "short_gamma":
                 w = 0.7
             else:
                 w = 0.5
             
             print(f"   ⚖️ Regime weight: {w}")
-            center = w * vanna_center + (1 - w) * zero_gamma
-            print(f"   🎯 Blended center: {center:.2f}")
+            base_center = spot_price + vanna_shift
+            
+            if zg_valid:
+                center = w * base_center + (1 - w) * zero_gamma
+                print(f"   🎯 Blended center: {w:.1f}*{base_center:.2f} + {1-w:.1f}*{zero_gamma:.2f} = {center:.2f}")
+            else:
+                center = base_center  # Don't blend with invalid ZG
+                print(f"   🎯 Center (no ZG blend): {center:.2f} (ZG invalid)")
             
             # Calculate support and resistance, clipped to gamma walls
             raw_resistance = center + band_value
@@ -358,33 +410,42 @@ class GreeksRangeModel:
             print(f"   📈 Raw resistance: {raw_resistance:.2f} -> clipped: {resistance:.2f}")
             print(f"   📉 Raw support: {raw_support:.2f} -> clipped: {support:.2f}")
             
-            # Validation: Ensure support < resistance
+            # STRICT INVARIANT: Support < Resistance - fallback to walls if violated
             if support >= resistance:
-                print(f"   ⚠️ VALIDATION ERROR: Support ({support:.2f}) >= Resistance ({resistance:.2f})")
-                print(f"   🔧 Adjusting based on center {center:.2f} and band {band_value:.2f}")
+                print(f"   ⚠️ INVARIANT VIOLATION: Support ({support:.2f}) >= Resistance ({resistance:.2f})")
+                print(f"   🔧 Falling back to gamma walls")
                 
-                # Recalculate with proper bounds
-                resistance = max(center + band_value/2, support + 10)  # Ensure at least 10 points separation
-                support = min(center - band_value/2, resistance - 10)
+                support, resistance = wall_lo, wall_hi
+                center = min(max(center, support), resistance)  # Clamp center to walls
                 
-                print(f"   ✅ Corrected: Support {support:.2f}, Resistance {resistance:.2f}")
+                print(f"   ✅ Fallback: Support {support:.2f}, Resistance {resistance:.2f}, Center {center:.2f}")
             
             # Find secondary walls for short gamma regime
             secondary_support = None
             secondary_resistance = None
             
             if gex_regime == "short_gamma":
-                # Find next gamma walls beyond primary walls
-                strikes = sorted(gex.keys())
-                for strike in strikes:
-                    if strike < wall_lo and abs(gex[strike]) > abs(gex.get(wall_lo, 0)) * 0.5:
-                        secondary_support = strike
-                        break
+                print("🔍 SECONDARY WALLS: Looking for secondary levels outside primary walls")
+                # Find next gamma walls beyond primary walls using magnitude
+                strikes = sorted(gex_magnitude.keys())
                 
-                for strike in reversed(strikes):
-                    if strike > wall_hi and abs(gex[strike]) > abs(gex.get(wall_hi, 0)) * 0.5:
-                        secondary_resistance = strike
-                        break
+                # Below primary wall
+                lows = [s for s in strikes if s < wall_lo]
+                if lows and wall_lo in gex_magnitude:
+                    base_gex = abs(gex_magnitude[wall_lo])
+                    candidates = [s for s in lows if abs(gex_magnitude[s]) >= 0.5 * base_gex]
+                    if candidates:
+                        secondary_support = float(candidates[-1])  # Closest to wall_lo
+                        print(f"   📉 Secondary support: {secondary_support:.0f}")
+                
+                # Above primary wall  
+                highs = [s for s in strikes if s > wall_hi]
+                if highs and wall_hi in gex_magnitude:
+                    base_gex = abs(gex_magnitude[wall_hi])
+                    candidates = [s for s in highs if abs(gex_magnitude[s]) >= 0.5 * base_gex]
+                    if candidates:
+                        secondary_resistance = float(candidates[0])  # Closest to wall_hi
+                        print(f"   📈 Secondary resistance: {secondary_resistance:.0f}")
             
             return {
                 "center": round(center, 2),
@@ -392,7 +453,8 @@ class GreeksRangeModel:
                 "resistance": round(resistance, 2),
                 "support2": round(secondary_support, 2) if secondary_support else None,
                 "resistance2": round(secondary_resistance, 2) if secondary_resistance else None,
-                "zero_gamma": round(zero_gamma, 2),
+                "zero_gamma": round(zero_gamma, 2) if zero_gamma else None,
+                "zero_gamma_valid": zg_valid,
                 "gamma_wall_low": round(wall_lo, 2),
                 "gamma_wall_high": round(wall_hi, 2),
                 "gex_regime": gex_regime,
