@@ -512,7 +512,11 @@ async def get_option_chain():
 async def get_greeks_range():
     """Get Greeks-based support/resistance levels using GRM"""
     try:
-        from greeks_range_model import GreeksRangeModel
+        try:
+            from greeks_range_model import GreeksRangeModel
+        except ImportError:
+            # Try relative import
+            from .greeks_range_model import GreeksRangeModel
         import pandas as pd
         import numpy as np
         

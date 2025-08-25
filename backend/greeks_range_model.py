@@ -68,7 +68,6 @@ class GreeksRangeModel:
         Find Zero-Gamma level where cumulative GEX crosses zero
         Returns: (zero_gamma_level, is_valid)
         """
-        from typing import Optional, Tuple
         
         strikes = sorted(gex_signed.keys())
         cumulative_gex = 0.0
