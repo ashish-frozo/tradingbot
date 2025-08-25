@@ -1,10 +1,16 @@
 [phases.setup]
-nixPkgs = ['python311']
+nixPkgs = ['nodejs', 'python311', 'gcc']
 
 [phases.install]
 cmds = [
-    'pip install fastapi uvicorn'
+    'cd frontend && npm ci',
+    'pip install -r backend/requirements.txt'
+]
+
+[phases.build]
+cmds = [
+    'cd frontend && npm run build'
 ]
 
 [start]
-cmd = 'python backend/test_server.py'
+cmd = 'python backend/railway_server.py'

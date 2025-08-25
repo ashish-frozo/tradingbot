@@ -12,7 +12,6 @@ from datetime import datetime
 import json
 import numpy as np
 import os
-import pytz
 import random
 import time
 
@@ -512,8 +511,7 @@ async def get_option_chain():
 @app.get("/api/sentiment")
 async def get_sentiment():
     """Get current market sentiment analysis"""
-    ist = pytz.timezone('Asia/Kolkata')
-    now_ist = datetime.now(ist)
+    from datetime import datetime
     return {
         "regime": "Bullish",
         "confidence": 0.75,
@@ -530,7 +528,7 @@ async def get_sentiment():
             "vanna_tilt": 0.15,
             "charm_pressure": -0.05
         },
-        "timestamp": now_ist.isoformat()
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/api/greeks-range")
@@ -990,6 +988,4 @@ async def get_sentiment_legacy():
     return await get_current_sentiment()
 
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("railway_server:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("railway_server:app", host="0.0.0.0", port=8001, reload=True)
