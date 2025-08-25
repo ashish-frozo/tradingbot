@@ -17,6 +17,7 @@ import { AlertsPanel } from './AlertsPanel';
 import { LatencyChart } from './LatencyChart';
 import { AlphaDecayChart } from './AlphaDecayChart';
 import GreeksRangePanel from './GreeksRangePanel';
+import { KillSwitchPanel } from './KillSwitchPanel';
 import { usePositions, useRiskMetrics, useEquityData } from '../hooks/useApiData';
 import { useAppStore } from '../stores/useAppStore';
 import { formatCurrency, formatPercent, getPnlColor } from '../lib/utils';
@@ -44,7 +45,7 @@ export const Dashboard: React.FC = () => {
   const sharpeRatio = equityData?.sharpe_ratio || 1.42;
   
   // View state
-  const [selectedView, setSelectedView] = React.useState<'overview' | 'detailed' | 'options' | 'strategies' | 'analysis' | 'selector' | 'sentiment'>('overview');
+  const [selectedView, setSelectedView] = React.useState<'overview' | 'detailed' | 'options' | 'strategies' | 'analysis' | 'selector' | 'sentiment' | 'control'>('overview');
   
   // Animation variants
   const containerVariants = {
@@ -169,6 +170,13 @@ export const Dashboard: React.FC = () => {
                     onClick={() => setSelectedView('sentiment')}
                   >
                     🧠 Sentiment
+                  </Button>
+                  <Button
+                    variant={selectedView === 'control' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSelectedView('control')}
+                  >
+                    🔴 Control
                   </Button>
                 </div>
                 <Button
@@ -321,6 +329,12 @@ export const Dashboard: React.FC = () => {
           ) : selectedView === 'sentiment' ? (
             <div className="space-y-6">
               <MarketSentimentAnalyzer />
+            </div>
+          ) : selectedView === 'control' ? (
+            <div className="space-y-6">
+              <motion.div variants={itemVariants}>
+                <KillSwitchPanel />
+              </motion.div>
             </div>
           ) : null}
 
