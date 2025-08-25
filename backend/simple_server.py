@@ -370,12 +370,12 @@ async def get_option_chain():
         
         try:
             # Single API call approach - get expiry list only once
-            expiry_list = dhan.get_expiry_list('NIFTY', 'NFO')
+            expiry_list = dhan.get_expiry_list('NIFTY', 'INDEX')
             print(f"📅 Available expiries: {expiry_list}")
             
-            # Smart expiry selection - ONLY try index 0 (nearest expiry)
-            # Based on testing: index 0 works but may be empty, index 1+ give "Invalid Expiry Date"
-            expiry_indices_to_try = [0]  # Only try the nearest expiry that actually works
+            # Smart expiry selection - try both expiry indices now that exchange is fixed
+            # INDEX exchange resolves the "Invalid Expiry Date" error - both indices work!
+            expiry_indices_to_try = [0, 1] if len(expiry_list) > 1 else [0]
             
             for expiry_index in expiry_indices_to_try:
                 expiry_date = expiry_list[expiry_index] if expiry_index < len(expiry_list) else "unknown"
@@ -386,7 +386,7 @@ async def get_option_chain():
                 try:
                     # Make API call with longer delay to avoid rate limiting
                     time.sleep(5)  # Longer delay to respect rate limits
-                    oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
+                    oc_result = dhan.get_option_chain("NIFTY", "INDEX", expiry_index, 21)
                     
                     if isinstance(oc_result, tuple) and len(oc_result) == 2:
                         atm_strike, oc_df = oc_result
