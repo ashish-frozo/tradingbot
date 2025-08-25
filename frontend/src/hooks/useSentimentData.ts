@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getApiUrl } from '../lib/config';
 
 interface SentimentData {
   regime: 'Bullish' | 'Bearish' | 'Sideways' | 'Balanced';
@@ -42,7 +43,7 @@ export const useSentimentData = () => {
 
   const fetchSentimentData = async () => {
     try {
-      const response = await fetch('http://localhost:8001/api/v1/sentiment/current');
+      const response = await fetch(`${getApiUrl()}/api/v1/sentiment/current`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }

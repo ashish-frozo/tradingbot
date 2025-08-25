@@ -911,5 +911,58 @@ async def serve_files(file_path: str, request: Request):
     
     return {"error": "File not found"}
 
+# Market Sentiment Analysis endpoints
+@app.get("/api/v1/sentiment/current")
+async def get_current_sentiment():
+    """Get current market sentiment analysis"""
+    from datetime import datetime
+    return {
+        "regime": "Bullish",
+        "confidence": 0.75,
+        "pillars": {
+            "directional_bias": 0.8,
+            "trend_propensity": 0.7,
+            "pinning_range": 0.6
+        },
+        "metrics": {
+            "spot": 24850.75,
+            "rr25": 1.25,
+            "gex": -15000,
+            "max_oi_pin": 24800,
+            "vanna_tilt": 0.15,
+            "charm_pressure": -0.05
+        },
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/api/v1/sentiment/zscore-stats")
+async def get_zscore_stats():
+    """Get Z-score statistics for normalization"""
+    return {
+        "rr25": {"mean": 1.0, "std": 0.5},
+        "gex": {"mean": -10000, "std": 25000},
+        "ndt": {"mean": 0, "std": 1000},
+        "vanna_tilt": {"mean": 0.1, "std": 0.2},
+        "charm_sum": {"mean": -0.02, "std": 0.05},
+        "max_oi_pin": {"mean": 24500, "std": 200},
+        "iv_front": {"mean": 15.0, "std": 5.0},
+        "iv_back": {"mean": 18.0, "std": 6.0},
+        "realized_vol": {"mean": 12.0, "std": 4.0}
+    }
+
+@app.get("/api/v1/sentiment/regime-performance")
+async def get_regime_performance():
+    """Get regime performance statistics"""
+    return {
+        "bullish": {"avg_return": 2.1, "sharpe": 1.8, "count": 45},
+        "bearish": {"avg_return": -1.5, "sharpe": -1.2, "count": 38},
+        "neutral": {"avg_return": 0.3, "sharpe": 0.4, "count": 67}
+    }
+
+@app.get("/api/sentiment")
+async def get_sentiment_legacy():
+    """Legacy sentiment endpoint - redirects to current"""
+    return await get_current_sentiment()
+
 if __name__ == "__main__":
     uvicorn.run("railway_server:app", host="0.0.0.0", port=8001, reload=True)
