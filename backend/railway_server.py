@@ -317,8 +317,8 @@ async def get_option_chain():
                 print("ℹ️ Following DhanHQ guidelines: Using REST API for snapshot data only")
                 
                 try:
-                    # Make API call with respectful delay
-                    time.sleep(2)  # Respectful delay
+                    # Make API call with longer delay to avoid rate limiting
+                    time.sleep(5)  # Longer delay to respect rate limits
                     oc_result = dhan.get_option_chain("NIFTY", "NFO", expiry_index, 21)
                     
                     if isinstance(oc_result, tuple) and len(oc_result) == 2:
@@ -339,8 +339,9 @@ async def get_option_chain():
                     if "Invalid Expiry Date" in error_msg or "811" in error_msg:
                         print(f"📅 Expiry {expiry_date} is invalid, trying next expiry...")
                         continue  # Try next expiry
-                    elif "Too many requests" in error_msg:
-                        print("🚫 Rate limited - stopping further attempts")
+                    elif "Too many requests" in error_msg or "805" in error_msg:
+                        print("🚫 Rate limited - stopping all API attempts to avoid blocking")
+                        print("💡 Will use fallback data immediately")
                         break  # Stop trying to avoid more rate limiting
                     else:
                         print(f"🔄 Unknown error, trying next expiry...")
@@ -363,6 +364,8 @@ async def get_option_chain():
         if oc_df is None or (hasattr(oc_df, 'empty') and oc_df.empty):
             print("Option chain data not available (early market hours or API limitation) - using realistic fallback with live spot price")
             # Generate realistic option chain data using current spot price
+            print("📡 Getting live NIFTY LTP for fallback...")
+            time.sleep(3)  # Additional delay before LTP call
             spot_data = dhan.get_ltp_data("NIFTY")
             spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
             
