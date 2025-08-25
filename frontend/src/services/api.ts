@@ -2,7 +2,9 @@
  * API service for communicating with the backend
  */
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8001');
+import { getApiUrl } from '../lib/config';
+
+const API_BASE_URL = getApiUrl();
 
 export interface EquityData {
   dates: string[];

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { getApiUrl } from '../lib/config';
 
 interface OptionData {
   ltp: number;
@@ -40,10 +41,44 @@ export const GreeksHeatmap: React.FC = () => {
 
   const fetchOptionChain = async () => {
     try {
-      const response = await fetch('http://localhost:8001/api/option-chain');
+      const response = await fetch(`${getApiUrl()}/api/option-chain`);
       if (response.ok) {
-        const data = await response.json();
-        setOptionData(data);
+        const rawData = await response.json();
+        
+        // Handle new API response format (direct option chain data)
+        if (rawData.option_chain && rawData.symbol) {
+          const transformedData = {
+            spot_price: rawData.spot_price,
+            data: rawData.option_chain.map((item: any) => ({
+              strike: item.strike,
+              call: {
+                ltp: item.call.ltp,
+                bid: item.call.bid,
+                ask: item.call.ask,
+                volume: item.call.volume,
+                oi: item.call.oi,
+                iv: item.call.iv,
+                delta: item.call.delta,
+                gamma: item.call.gamma,
+                theta: item.call.theta,
+                vega: item.call.vega
+              },
+              put: {
+                ltp: item.put.ltp,
+                bid: item.put.bid,
+                ask: item.put.ask,
+                volume: item.put.volume,
+                oi: item.put.oi,
+                iv: item.put.iv,
+                delta: item.put.delta,
+                gamma: item.put.gamma,
+                theta: item.put.theta,
+                vega: item.put.vega
+              }
+            }))
+          };
+          setOptionData(transformedData);
+        }
       }
     } catch (error) {
       console.error('Error fetching option chain:', error);
