@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import { getApiUrl } from '../lib/config';
 
 interface MarketData {
   spot: number;
@@ -92,20 +93,27 @@ export const StrategySelector: React.FC = () => {
   const RISK_BUDGET = 10000; // ₹10,000 daily risk budget
 
   useEffect(() => {
+    console.log('🔍 STRATEGY DEBUG: StrategySelector component mounted');
     const now = new Date();
     const currentTime = now.getHours() * 100 + now.getMinutes();
     
+    console.log(`🔍 STRATEGY DEBUG: Current time: ${now.toTimeString()}, Time code: ${currentTime}`);
+    
     // Active between 09:15 and 09:45
     if (currentTime >= 915 && currentTime <= 945) {
+      console.log('✅ STRATEGY DEBUG: Within active window (09:15-09:45), starting data collection');
       setIsActive(true);
       startDataCollection();
     } else {
+      console.log('❌ STRATEGY DEBUG: Outside active window (09:15-09:45), strategy selector inactive');
       setIsActive(false);
     }
 
     const interval = setInterval(() => {
+      console.log('🔄 STRATEGY DEBUG: Interval tick - updating time and checking if active');
       updateTimeRemaining();
       if (isActive) {
+        console.log('🔄 STRATEGY DEBUG: Strategy is active, fetching data and computing signals');
         fetchMarketData();
         computeSignals();
       }
@@ -131,13 +139,16 @@ export const StrategySelector: React.FC = () => {
   };
 
   const startDataCollection = async () => {
+    console.log('🚀 STRATEGY DEBUG: Starting data collection');
     // Initialize with current market data
     await fetchMarketData();
     await fetchOptionChain();
+    console.log('✅ STRATEGY DEBUG: Initial data collection completed');
   };
 
   const fetchMarketData = async () => {
     try {
+      console.log('📊 STRATEGY DEBUG: Fetching market data (using mock data)');
       // Mock 1-minute market data - in real implementation, fetch from backend
       const mockData: MarketData = {
         spot: 25100 + (Math.random() - 0.5) * 100,
@@ -145,28 +156,53 @@ export const StrategySelector: React.FC = () => {
         volume: Math.floor(Math.random() * 1000000) + 500000
       };
       
-      setMarketData(prev => [...prev.slice(-29), mockData]); // Keep last 30 minutes
+      console.log('📊 STRATEGY DEBUG: Mock market data generated:', mockData);
+      setMarketData(prev => {
+        const newData = [...prev.slice(-29), mockData];
+        console.log(`📊 STRATEGY DEBUG: Market data array length: ${newData.length}`);
+        return newData;
+      });
     } catch (error) {
-      console.error('Error fetching market data:', error);
+      console.error('❌ STRATEGY DEBUG: Error fetching market data:', error);
     }
   };
 
   const fetchOptionChain = async () => {
     try {
-      const response = await fetch('http://localhost:8001/api/option-chain');
+      const apiUrl = `${getApiUrl()}/api/option-chain`;
+      console.log('🔗 STRATEGY DEBUG: Fetching option chain from:', apiUrl);
+      
+      const response = await fetch(apiUrl);
+      console.log('🔗 STRATEGY DEBUG: Option chain response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
-        setOptionChain(data.data);
+        console.log('🔗 STRATEGY DEBUG: Option chain data received:', data);
+        
+        // Handle both new and legacy API response formats
+        const chainData = data.option_chain || data.data || data;
+        console.log('🔗 STRATEGY DEBUG: Processed option chain length:', chainData?.length || 0);
+        
+        setOptionChain(chainData || []);
+      } else {
+        console.error('❌ STRATEGY DEBUG: Failed to fetch option chain:', response.status, response.statusText);
       }
     } catch (error) {
-      console.error('Error fetching option chain:', error);
+      console.error('❌ STRATEGY DEBUG: Error fetching option chain:', error);
     }
   };
 
   const computeSignals = () => {
-    if (marketData.length < 2 || optionChain.length === 0) return;
+    console.log('🧮 STRATEGY DEBUG: Computing signals...');
+    console.log(`🧮 STRATEGY DEBUG: Market data length: ${marketData.length}, Option chain length: ${optionChain.length}`);
+    
+    if (marketData.length < 2 || optionChain.length === 0) {
+      console.log('❌ STRATEGY DEBUG: Insufficient data for signal computation');
+      return;
+    }
 
     const currentSpot = marketData[marketData.length - 1].spot;
+    console.log(`🧮 STRATEGY DEBUG: Current spot price: ${currentSpot}`);
     const spotOpen = marketData[0].spot;
     
     // 1. Opening Range (OR)
@@ -223,6 +259,7 @@ export const StrategySelector: React.FC = () => {
       current_spot: currentSpot
     };
 
+    console.log('📊 STRATEGY DEBUG: Computed signals:', newSignals);
     setSignals(newSignals);
     computeStrategyScores(newSignals);
   };
@@ -252,6 +289,7 @@ export const StrategySelector: React.FC = () => {
   };
 
   const computeStrategyScores = (signals: Signals) => {
+    console.log('🎯 STRATEGY DEBUG: Computing strategy scores for signals:', signals);
     const scores: StrategyScores = { A: 0, B: 0, C: 0, D: 0 };
 
     // A) Expiry Iron Fly
@@ -279,6 +317,7 @@ export const StrategySelector: React.FC = () => {
     if (signals.EM_pct <= 1.1 * signals.OR_width_pct) scores.D += 1;
     if (Math.abs(signals.RR25) >= 2.0) scores.D -= 1;
 
+    console.log('📊 STRATEGY DEBUG: Final strategy scores:', scores);
     setScores(scores);
     selectBestStrategy(scores, signals);
   };
@@ -300,8 +339,10 @@ export const StrategySelector: React.FC = () => {
 
   const selectBestStrategy = (scores: StrategyScores, signals: Signals) => {
     const maxScore = Math.max(scores.A, scores.B, scores.C, scores.D);
+    console.log(`🏆 STRATEGY DEBUG: Best strategy selection - Max score: ${maxScore}, Liquidity OK: ${signals.liquidity_ok}`);
     
     if (maxScore < 2 || !signals.liquidity_ok) {
+      console.log('❌ STRATEGY DEBUG: No trade - insufficient score or poor liquidity');
       setSelectedStrategy('NO-TRADE');
       setRecommendation(null);
       return;
@@ -313,18 +354,21 @@ export const StrategySelector: React.FC = () => {
     else if (scores.C === maxScore) strategy = 'C';
     else if (scores.D === maxScore) strategy = 'D';
 
+    console.log(`✅ STRATEGY DEBUG: Selected strategy: ${strategy} with score: ${maxScore}`);
     setSelectedStrategy(strategy);
     constructTrade(strategy, signals);
   };
 
   const constructTrade = (strategy: string, signals: Signals) => {
+    console.log(`🔨 STRATEGY DEBUG: Constructing trade for strategy ${strategy}`);
     const atmStrike = findATMStrike(signals.current_spot);
+    console.log(`🔨 STRATEGY DEBUG: ATM strike: ${atmStrike}, Current spot: ${signals.current_spot}`);
     
     switch (strategy) {
       case 'A': // Expiry Iron Fly
         const wingStrike1 = Math.round(atmStrike * 1.01);
         const wingStrike2 = Math.round(atmStrike * 0.99);
-        setRecommendation({
+        const ironFlyRec = {
           strategy: 'Expiry Iron Fly',
           legs: [
             { type: 'SELL', opt: 'CALL', strike: atmStrike, dte: 'today' },
@@ -338,7 +382,9 @@ export const StrategySelector: React.FC = () => {
             notes: 'Entry: 09:25-09:50 on pullback'
           },
           risk: { max_loss_R: 0.5 }
-        });
+        };
+        console.log('📋 STRATEGY DEBUG: Iron Fly recommendation created:', ironFlyRec);
+        setRecommendation(ironFlyRec);
         break;
 
       case 'B': // ORB + ITM Long
