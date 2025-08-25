@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { getApiUrl } from '../lib/config';
-import { getApiUrl } from '../lib/config';
 
 interface MarketData {
   spot: number;
@@ -92,36 +91,81 @@ export const StrategySelector: React.FC = () => {
   const [timeRemaining, setTimeRemaining] = useState<string>('');
 
   const RISK_BUDGET = 10000; // ₹10,000 daily risk budget
+  const LOT_SIZE = 50; // NIFTY lot size
 
+  // Helper functions
+  const mid = (bid: number, ask: number): number => 
+    (ask > 0 && bid > 0) ? (ask + bid) / 2 : Math.max(ask, bid, 0);
+
+  const relativeSpread = (bid: number, ask: number): number =>
+    (ask > 0 && bid > 0) ? (ask - bid) / ((ask + bid) / 2) : 1;
+
+  const nearestStrike = (target: number): number =>
+    optionChain.reduce((best, o) => 
+      Math.abs(o.strike - target) < Math.abs(best - target) ? o.strike : best, 
+      optionChain[0]?.strike || target
+    );
+
+  // Separate effect for time/countdown
   useEffect(() => {
     console.log('🔍 STRATEGY DEBUG: StrategySelector component mounted');
+    const tick = () => updateTimeRemaining();
+    tick();
+    const t = setInterval(tick, 1000); // Real countdown
+    return () => clearInterval(t);
+  }, []);
+
+  // Separate effect for active window detection
+  useEffect(() => {
     const now = new Date();
     const currentTime = now.getHours() * 100 + now.getMinutes();
     
     console.log(`🔍 STRATEGY DEBUG: Current time: ${now.toTimeString()}, Time code: ${currentTime}`);
     
-    // Active between 09:15 and 09:45
-    if (currentTime >= 915 && currentTime <= 945) {
+    // Active between 09:15 and 09:45 (TEMP: Always active for testing)
+    const active = true; // currentTime >= 915 && currentTime <= 945;
+    
+    if (active) {
       console.log('✅ STRATEGY DEBUG: Within active window (09:15-09:45), starting data collection');
-      setIsActive(true);
-      startDataCollection();
     } else {
       console.log('❌ STRATEGY DEBUG: Outside active window (09:15-09:45), strategy selector inactive');
-      setIsActive(false);
     }
+    
+    setIsActive(active);
+  }, []);
 
-    const interval = setInterval(() => {
-      console.log('🔄 STRATEGY DEBUG: Interval tick - updating time and checking if active');
-      updateTimeRemaining();
-      if (isActive) {
-        console.log('🔄 STRATEGY DEBUG: Strategy is active, fetching data and computing signals');
-        fetchMarketData();
-        computeSignals();
-      }
-    }, 60000); // Update every minute
-
-    return () => clearInterval(interval);
+  // Separate effect for data fetching when active
+  useEffect(() => {
+    if (!isActive) return;
+    
+    console.log('🔄 STRATEGY DEBUG: Setting up data fetching intervals');
+    fetchMarketData();
+    fetchOptionChain();
+    
+    const marketInterval = setInterval(() => {
+      console.log('📊 STRATEGY DEBUG: Fetching market data (interval)');
+      fetchMarketData();
+    }, 15000); // Every 15 seconds
+    
+    const chainInterval = setInterval(() => {
+      console.log('🔗 STRATEGY DEBUG: Fetching option chain (interval)');
+      fetchOptionChain();
+    }, 30000); // Every 30 seconds
+    
+    return () => {
+      clearInterval(marketInterval);
+      clearInterval(chainInterval);
+    };
   }, [isActive]);
+
+  // Separate effect for signal computation when data changes
+  useEffect(() => {
+    console.log('🧮 STRATEGY DEBUG: Data changed, checking if ready to compute signals');
+    if (marketData.length >= 2 && optionChain.length > 0) {
+      console.log('✅ STRATEGY DEBUG: Data ready, computing signals');
+      computeSignals();
+    }
+  }, [marketData, optionChain]);
 
   const updateTimeRemaining = () => {
     const now = new Date();
@@ -212,11 +256,16 @@ export const StrategySelector: React.FC = () => {
     const ORL = Math.min(...spots);
     const OR_width_pct = ((ORH - ORL) / spotOpen) * 100;
 
-    // 2. Expected Move (EM) from ATM straddle
+    // 2. Expected Move (EM) from ATM straddle using mid prices
     const atmStrike = findATMStrike(currentSpot);
     const atmCall = optionChain.find(opt => opt.strike === atmStrike)?.call;
     const atmPut = optionChain.find(opt => opt.strike === atmStrike)?.put;
-    const EM_pct = atmCall && atmPut ? ((atmCall.ltp + atmPut.ltp) / currentSpot) * 100 : 0;
+    
+    const callMid = atmCall ? mid(atmCall.bid, atmCall.ask) : 0;
+    const putMid = atmPut ? mid(atmPut.bid, atmPut.ask) : 0;
+    const EM_pct = (callMid + putMid) / currentSpot * 100;
+    
+    console.log(`📊 STRATEGY DEBUG: ATM Strike: ${atmStrike}, Call Mid: ${callMid}, Put Mid: ${putMid}, EM: ${EM_pct.toFixed(2)}%`);
 
     // 3. Front/Back ATM IV ratio (mock next week data)
     const frontIV = atmCall?.iv || 0;
@@ -228,22 +277,27 @@ export const StrategySelector: React.FC = () => {
     const put25Delta = findStrikeByDelta(0.25, 'put');
     const RR25 = (call25Delta?.iv || 0) - (put25Delta?.iv || 0);
 
-    // 5. Realized Volatility (30min)
+    // 5. Realized Volatility (30min) - Indian market: 375 mins/day
     const returns = [];
     for (let i = 1; i < marketData.length; i++) {
       returns.push(Math.log(marketData[i].spot / marketData[i-1].spot));
     }
+    const N = Math.max(returns.length, 1);
     const rv_30m_volpts = returns.length > 0 ? 
-      Math.sqrt(returns.reduce((sum, r) => sum + r*r, 0) / returns.length) * Math.sqrt(390) * 100 : 0;
+      Math.sqrt(returns.reduce((sum, r) => sum + r*r, 0)) * Math.sqrt((375/N)*252) * 100 : 0;
+    
+    console.log(`📊 STRATEGY DEBUG: Returns count: ${N}, RV Annualized: ${rv_30m_volpts.toFixed(2)}%`);
 
     // 6. Pin risk
     const maxOIStrike = findMaxOIStrike();
     const pin_dist_pct = Math.abs(currentSpot - maxOIStrike) / currentSpot * 100;
 
-    // 7. Liquidity check
-    const atmSpread = atmCall && atmPut ? 
-      (atmCall.ask - atmCall.bid + atmPut.ask - atmPut.bid) / 2 : 999;
-    const liquidity_ok = atmSpread <= 2.0; // 2 tick threshold
+    // 7. Liquidity check using relative spreads
+    const liqCall = atmCall ? relativeSpread(atmCall.bid, atmCall.ask) : 1;
+    const liqPut = atmPut ? relativeSpread(atmPut.bid, atmPut.ask) : 1;
+    const liquidity_ok = Math.max(liqCall, liqPut) <= 0.02; // ≤2% relative spread
+    
+    console.log(`📊 STRATEGY DEBUG: Call spread: ${(liqCall*100).toFixed(2)}%, Put spread: ${(liqPut*100).toFixed(2)}%, Liquidity OK: ${liquidity_ok}`);
 
     const newSignals: Signals = {
       OR_width_pct,
@@ -281,12 +335,11 @@ export const StrategySelector: React.FC = () => {
   };
 
   const findMaxOIStrike = (): number => {
-    return optionChain.reduce((maxStrike, opt) => {
-      const totalOI = opt.call.oi + opt.put.oi;
-      const maxOI = optionChain.find(o => o.strike === maxStrike);
-      const maxTotalOI = maxOI ? maxOI.call.oi + maxOI.put.oi : 0;
-      return totalOI > maxTotalOI ? opt.strike : maxStrike;
-    }, optionChain[0]?.strike || 0);
+    if (optionChain.length === 0) return 0;
+    return optionChain.reduce((best, o) => {
+      const oi = o.call.oi + o.put.oi;
+      return oi > best.oi ? {strike: o.strike, oi} : best;
+    }, {strike: optionChain[0].strike, oi: optionChain[0].call.oi + optionChain[0].put.oi}).strike;
   };
 
   const computeStrategyScores = (signals: Signals) => {
@@ -324,6 +377,11 @@ export const StrategySelector: React.FC = () => {
   };
 
   const checkBreakout = (signals: Signals) => {
+    if (marketData.length < 10) {
+      console.log('❌ STRATEGY DEBUG: Insufficient data for breakout analysis (need ≥10 bars)');
+      return { hasBreakout: false, direction: null };
+    }
+    
     const currentSpot = signals.current_spot;
     const avgVolume = marketData.slice(0, -5).reduce((sum, d) => sum + d.volume, 0) / Math.max(marketData.length - 5, 1);
     const recentVolume = marketData.slice(-5).reduce((sum, d) => sum + d.volume, 0) / 5;
@@ -367,15 +425,15 @@ export const StrategySelector: React.FC = () => {
     
     switch (strategy) {
       case 'A': // Expiry Iron Fly
-        const wingStrike1 = Math.round(atmStrike * 1.01);
-        const wingStrike2 = Math.round(atmStrike * 0.99);
+        const wingCall = nearestStrike(atmStrike * 1.01);
+        const wingPut = nearestStrike(atmStrike * 0.99);
         const ironFlyRec = {
           strategy: 'Expiry Iron Fly',
           legs: [
             { type: 'SELL', opt: 'CALL', strike: atmStrike, dte: 'today' },
             { type: 'SELL', opt: 'PUT', strike: atmStrike, dte: 'today' },
-            { type: 'BUY', opt: 'CALL', strike: wingStrike1, dte: 'today' },
-            { type: 'BUY', opt: 'PUT', strike: wingStrike2, dte: 'today' }
+            { type: 'BUY', opt: 'CALL', strike: wingCall, dte: 'today' },
+            { type: 'BUY', opt: 'PUT', strike: wingPut, dte: 'today' }
           ],
           exits: {
             tp: '+35-50% of net credit',
@@ -384,8 +442,22 @@ export const StrategySelector: React.FC = () => {
           },
           risk: { max_loss_R: 0.5 }
         };
-        console.log('📋 STRATEGY DEBUG: Iron Fly recommendation created:', ironFlyRec);
-        setRecommendation(ironFlyRec);
+        // Calculate position size
+        const atmCallOption = optionChain.find(opt => opt.strike === atmStrike)?.call;
+        const atmPutOption = optionChain.find(opt => opt.strike === atmStrike)?.put;
+        const premium = (atmCallOption?.ltp || 0) + (atmPutOption?.ltp || 0);
+        const notionalRiskPerLot = premium * LOT_SIZE;
+        const maxLots = Math.max(1, Math.floor((RISK_BUDGET * (ironFlyRec.risk.max_loss_R)) / notionalRiskPerLot));
+        
+        const finalRec = {
+          ...ironFlyRec,
+          suggestedLots: maxLots,
+          premium: premium,
+          maxRisk: notionalRiskPerLot * maxLots
+        };
+        
+        console.log('📋 STRATEGY DEBUG: Iron Fly recommendation created:', finalRec);
+        setRecommendation(finalRec);
         break;
 
       case 'B': // ORB + ITM Long
