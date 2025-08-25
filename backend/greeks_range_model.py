@@ -32,6 +32,12 @@ class GreeksRangeModel:
     def _nearest_key(self, d: Dict[float, float], x: float) -> float:
         """Find nearest key in dictionary to handle float key equality issues"""
         return min(d.keys(), key=lambda k: abs(k - x)) if d else x
+    
+    def _get_ist_timestamp(self) -> str:
+        """Get current timestamp in IST timezone"""
+        import pytz
+        ist = pytz.timezone('Asia/Kolkata')
+        return datetime.now(ist).isoformat()
         
     def calculate_dealer_gex(self, option_chain: pd.DataFrame) -> Dict[str, Dict[float, float]]:
         """
@@ -529,7 +535,7 @@ class GreeksRangeModel:
                 "charm_modifier": round(charm_modifier, 2),
                 "vanna_shift": round(vanna_shift, 2),
                 "mode": mode,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": self._get_ist_timestamp(),
                 "trading_strategy": self._get_trading_strategy(gex_regime, center, support, resistance)
             }
             

@@ -399,7 +399,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({ className = '' }) => {
                         </Badge>
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-500">
-                        {new Date(alert.timestamp).toLocaleString()}
+                        {new Date(alert.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
                       </div>
                     </div>
                   </div>

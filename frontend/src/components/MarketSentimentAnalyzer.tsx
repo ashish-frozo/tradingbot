@@ -137,7 +137,7 @@ const MarketSentimentAnalyzer: React.FC = () => {
                       Confidence: {(sentimentData.confidence * 100).toFixed(1)}%
                     </div>
                     <div className="text-sm text-gray-500 mt-2">
-                      As of: {new Date(sentimentData.asof).toLocaleTimeString()}
+                      As of: {new Date(sentimentData.asof).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
                     </div>
                   </div>
                 </CardContent>

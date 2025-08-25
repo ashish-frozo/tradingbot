@@ -193,7 +193,7 @@ const GreeksRangePanel: React.FC = () => {
         <div>
           <div className="text-gray-500">Updated</div>
           <div className="font-semibold">
-            {new Date(rangeData.timestamp).toLocaleTimeString()}
+            {new Date(rangeData.timestamp).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}
           </div>
         </div>
       </div>

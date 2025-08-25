@@ -11,6 +11,7 @@ import uvicorn
 from datetime import datetime
 import json
 import numpy as np
+import pytz
 import os
 import random
 import time
@@ -30,6 +31,12 @@ try:
 except ImportError as e:
     print(f"⚠️ Kill switch module not available: {e}")
     KILL_SWITCH_AVAILABLE = False
+
+# Helper function for IST timestamps
+def get_ist_now():
+    """Get current time in IST timezone"""
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(ist)
 
 app = FastAPI(title="Nifty Trade Setup API", version="1.0.0")
 
@@ -52,7 +59,7 @@ _dhan_client_initialized = False
 # API Routes
 @app.get("/api/health")
 async def health():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    return {"status": "healthy", "timestamp": get_ist_now().isoformat()}
 
 def get_dhan_client():
     """Get or initialize Dhan client (singleton pattern to avoid re-downloading instrument file)"""
@@ -147,7 +154,7 @@ async def get_equity_data():
         
         # Fallback if no fund data
         return {
-            "dates": [datetime.now().isoformat()],
+            "dates": [get_ist_now().isoformat()],
             "equity": [100000],
             "total_return": 0,
             "current_equity": 100000,
@@ -161,7 +168,7 @@ async def get_equity_data():
     except Exception as e:
         print(f"Error fetching real equity data: {e}")
         return {
-            "dates": [datetime.now().isoformat()],
+            "dates": [get_ist_now().isoformat()],
             "equity": [100000],
             "total_return": 0,
             "current_equity": 100000,
@@ -268,7 +275,7 @@ async def get_market_data():
             "change": -89.25,
             "change_percent": -0.17
         },
-        "timestamp": datetime.now().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @app.get("/api/option-chain")
@@ -279,16 +286,16 @@ async def get_option_chain():
         kill_switch_status = should_allow_data_fetching()
         if not kill_switch_status['allowed']:
             print(f"🚫 Kill switch active: {kill_switch_status['message']}")
-            return {
+                return {
                 "status": "blocked",
                 "message": kill_switch_status['message'],
                 "reason": kill_switch_status['reason'],
-                "current_time_ist": kill_switch_status.get('current_time_ist', datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")),
+                "current_time_ist": kill_switch_status.get('current_time_ist', get_ist_now().strftime("%Y-%m-%d %H:%M:%S IST")),
                 "data": [],
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": get_ist_now().isoformat(),
                 "note": "Data fetching blocked by kill switch - check market hours or manual override"
-            }
-        else:
+                }
+            else:
             print(f"✅ Kill switch check passed: {kill_switch_status['message']}")
     
     try:
@@ -369,14 +376,14 @@ async def get_option_chain():
             time.sleep(3)  # Additional delay before LTP call
             spot_data = dhan.get_ltp_data("NIFTY")
             spot_price = spot_data.get("NIFTY", 25150.30) if spot_data else 25150.30
-            
-            # Generate realistic option chain
-            atm_strike = round(spot_price / 50) * 50
-            strikes = [atm_strike + i * 50 for i in range(-10, 11)]
-            
+        
+        # Generate realistic option chain
+        atm_strike = round(spot_price / 50) * 50
+        strikes = [atm_strike + i * 50 for i in range(-10, 11)]
+        
             option_chain = []
-            for strike in strikes:
-                distance = abs(strike - spot_price)
+        for strike in strikes:
+            distance = abs(strike - spot_price)
                 is_itm_call = strike < spot_price
                 is_itm_put = strike > spot_price
                 
@@ -432,7 +439,7 @@ async def get_option_chain():
                 "spot_price": spot_price,
                 "expiry": "2025-08-28",
                 "option_chain": option_chain,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": get_ist_now().isoformat(),
                 "data_source": "fallback_with_live_spot"
             }
         
@@ -490,28 +497,27 @@ async def get_option_chain():
             "spot_price": spot_price,
             "expiry": expiry,
             "option_chain": option_chain,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": get_ist_now().isoformat()
         }
         
-    except Exception as e:
+        except Exception as e:
         print(f"Error fetching real option chain: {e}")
         import traceback
         traceback.print_exc()
         
         # Fallback to basic mock data only if real API fails
-        return {
+    return {
             "error": f"Failed to fetch real option chain: {str(e)}",
             "symbol": "NIFTY",
             "spot_price": 25150.30,
             "expiry": "2025-08-29",
             "option_chain": [],
-            "timestamp": datetime.now().isoformat()
+            "timestamp": get_ist_now().isoformat()
         }
 
 @app.get("/api/sentiment")
 async def get_sentiment():
     """Get current market sentiment analysis"""
-    from datetime import datetime
     return {
         "regime": "Bullish",
         "confidence": 0.75,
@@ -528,7 +534,7 @@ async def get_sentiment():
             "vanna_tilt": 0.15,
             "charm_pressure": -0.05
         },
-        "timestamp": datetime.now().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @app.get("/api/greeks-range")
@@ -795,7 +801,7 @@ async def get_greeks_range():
             print(f"🎯 GRM DEBUG: Center: {result.get('center', 'N/A')}")
         
         return result
-        
+            
     except Exception as e:
         print(f"Error calculating Greeks range: {e}")
         # Fallback data
@@ -812,7 +818,7 @@ async def get_greeks_range():
             "expected_move": 100,
             "charm_modifier": 1.0,
             "vanna_shift": 0,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": get_ist_now().isoformat(),
             "trading_strategy": {
                 "type": "Neutral",
                 "description": "Mixed signals, trade with caution",
@@ -842,7 +848,7 @@ async def activate_kill_switch_endpoint():
     return {
         "status": "success",
         "message": "🔴 Manual kill switch ACTIVATED - All data fetching stopped",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @app.post("/api/kill-switch/deactivate")
@@ -855,7 +861,7 @@ async def deactivate_kill_switch_endpoint():
     return {
         "status": "success",
         "message": "🟢 Manual kill switch DEACTIVATED - Data fetching restored (subject to market hours)",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @app.post("/api/kill-switch/emergency-stop")
@@ -868,7 +874,7 @@ async def emergency_stop_endpoint():
     return {
         "status": "success",
         "message": "🚨 EMERGENCY STOP ACTIVATED - All systems halted",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @app.post("/api/kill-switch/emergency-restore")
@@ -881,7 +887,7 @@ async def emergency_restore_endpoint():
     return {
         "status": "success",
         "message": "🟢 Emergency stop DEACTIVATED - Systems restored",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 # Static file serving with raw file reading to ensure correct MIME types
@@ -955,7 +961,7 @@ async def get_current_sentiment():
             "vanna_tilt": 0.15,
             "charm_pressure": -0.05
         },
-        "timestamp": datetime.now().isoformat()
+        "timestamp": get_ist_now().isoformat()
     }
 
 @app.get("/api/v1/sentiment/zscore-stats")

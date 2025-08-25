@@ -803,7 +803,7 @@ export const OptionAnalysis: React.FC = () => {
 
       {/* Last Updated */}
       <div className="text-xs text-gray-500 text-center">
-        Last updated: {new Date(optionData.timestamp).toLocaleString('en-IN')}
+        Last updated: {new Date(optionData.timestamp).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
       </div>
     </div>
   );
