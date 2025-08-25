@@ -51,9 +51,47 @@ export const OptionChain: React.FC = () => {
       const response = await fetch(`${getApiUrl()}/api/option-chain`);
       const rawData = await response.json();
       
-      // Handle different response statuses
-      if (rawData.status === 'success' && rawData.data) {
-        // Transform successful API response
+      // Handle new API response format (direct option chain data)
+      if (rawData.option_chain && rawData.symbol) {
+        // Transform new API response format
+        const transformedData = {
+          success: true,
+          data: rawData.option_chain.map((item: any) => ({
+            strike: item.strike,
+            call: {
+              ltp: item.call.ltp,
+              bid: item.call.bid,
+              ask: item.call.ask,
+              volume: item.call.volume,
+              oi: item.call.oi,
+              iv: item.call.iv,
+              delta: item.call.delta,
+              gamma: item.call.gamma,
+              theta: item.call.theta,
+              vega: item.call.vega
+            },
+            put: {
+              ltp: item.put.ltp,
+              bid: item.put.bid,
+              ask: item.put.ask,
+              volume: item.put.volume,
+              oi: item.put.oi,
+              iv: item.put.iv,
+              delta: item.put.delta,
+              gamma: item.put.gamma,
+              theta: item.put.theta,
+              vega: item.put.vega
+            }
+          })),
+          timestamp: rawData.timestamp,
+          underlying: rawData.symbol,
+          spot_price: rawData.spot_price,
+          expiry: rawData.expiry
+        };
+        setOptionData(transformedData);
+        setError(null);
+      } else if (rawData.status === 'success' && rawData.data) {
+        // Handle legacy API response format (fallback)
         const transformedData = {
           success: true,
           data: rawData.data.map((item: any) => ({
