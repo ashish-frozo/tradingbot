@@ -276,20 +276,20 @@ async def get_option_chain():
     """Get real option chain data using Dhan API"""
     # Check kill switch first
     if KILL_SWITCH_AVAILABLE:
-        allowed, reason = should_allow_data_fetching()
-        if not allowed:
-            print(f"🚫 Kill switch active: {reason}")
+        kill_switch_status = should_allow_data_fetching()
+        if not kill_switch_status['allowed']:
+            print(f"🚫 Kill switch active: {kill_switch_status['message']}")
             return {
                 "status": "blocked",
-                "message": reason,
-                "reason": "outside_market_hours" if "market hours" in reason else "manual_kill_switch" if "Manual" in reason else "emergency_stop" if "Emergency" in reason else "unknown",
-                "current_time_ist": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
+                "message": kill_switch_status['message'],
+                "reason": kill_switch_status['reason'],
+                "current_time_ist": kill_switch_status.get('current_time_ist', datetime.now().strftime("%Y-%m-%d %H:%M:%S IST")),
                 "data": [],
                 "timestamp": datetime.now().isoformat(),
                 "note": "Data fetching blocked by kill switch - check market hours or manual override"
             }
         else:
-            print(f"✅ Kill switch check passed: {reason}")
+            print(f"✅ Kill switch check passed: {kill_switch_status['message']}")
     
     try:
         dhan = get_dhan_client()
