@@ -306,9 +306,9 @@ async def get_option_chain():
             expiry_list = dhan.get_expiry_list('NIFTY', 'NFO')
             print(f"📅 Available expiries: {expiry_list}")
             
-            # Smart expiry selection - try the most likely active expiry first
-            # For current market hours, try nearest expiry (index 0) first
-            expiry_indices_to_try = [0, 1] if len(expiry_list) > 1 else [0]
+            # Smart expiry selection - ONLY try index 0 (nearest expiry)
+            # Based on testing: index 0 works but may be empty, index 1+ give "Invalid Expiry Date"
+            expiry_indices_to_try = [0]  # Only try the nearest expiry that actually works
             
             for expiry_index in expiry_indices_to_try:
                 expiry_date = expiry_list[expiry_index] if expiry_index < len(expiry_list) else "unknown"
@@ -328,7 +328,8 @@ async def get_option_chain():
                             print(f"📊 ATM: {atm_strike}, Rows: {len(oc_df)}")
                             break  # Success! Use this data
                         else:
-                            print(f"⚠️ Expiry {expiry_date} returned empty data, trying next...")
+                            print(f"⚠️ Expiry {expiry_date} returned empty data but got ATM: {atm_strike}")
+                            # Even with empty data, we got a valid ATM strike - use it for better fallback
                     else:
                         print(f"⚠️ Unexpected API response format for expiry {expiry_date}")
                         
