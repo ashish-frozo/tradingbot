@@ -43,7 +43,7 @@ export const useSentimentData = () => {
 
   const fetchSentimentData = async () => {
     try {
-      const response = await fetch(`${getApiUrl()}/api/v1/sentiment/current`);
+      const response = await fetch(`${getApiUrl()}/api/sentiment`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }

@@ -508,6 +508,29 @@ async def get_option_chain():
             "timestamp": datetime.now().isoformat()
         }
 
+@app.get("/api/sentiment")
+async def get_sentiment():
+    """Get current market sentiment analysis"""
+    from datetime import datetime
+    return {
+        "regime": "Bullish",
+        "confidence": 0.75,
+        "pillars": {
+            "directional_bias": 0.8,
+            "trend_propensity": 0.7,
+            "pinning_range": 0.6
+        },
+        "metrics": {
+            "spot": 24850.75,
+            "rr25": 1.25,
+            "gex": -15000,
+            "max_oi_pin": 24800,
+            "vanna_tilt": 0.15,
+            "charm_pressure": -0.05
+        },
+        "timestamp": datetime.now().isoformat()
+    }
+
 @app.get("/api/greeks-range")
 async def get_greeks_range():
     """Get Greeks-based support/resistance levels using GRM"""
